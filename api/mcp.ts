@@ -19,4 +19,20 @@ const handler = createMcpHandler(
   }
 );
 
-export { handler as GET, handler as POST, handler as DELETE };
+/**
+ * The vercel.json rewrite forwards /mcp here, but the Request keeps the
+ * original /mcp path, which mcp-handler (basePath "/api") rejects.
+ * Normalize it so both /mcp and /api/mcp serve the endpoint.
+ */
+function normalized(request: Request): Request {
+  const url = new URL(request.url);
+  if (url.pathname === "/mcp") {
+    url.pathname = "/api/mcp";
+    return new Request(url, request);
+  }
+  return request;
+}
+
+const route = (request: Request) => handler(normalized(request));
+
+export { route as GET, route as POST, route as DELETE };
