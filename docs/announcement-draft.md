@@ -7,7 +7,7 @@ resource pages, Hacker News / MCP community).
 
 ## Short version (Reddit / HN / Slack)
 
-> SUpost, the Stanford student marketplace (since 2005), now has a remote
+> SUpost, the marketplace for Stanford (since 2005), now has a remote
 > MCP server: https://mcp.supost.com/mcp
 >
 > Your AI assistant can search active listings, pull a listing's details,

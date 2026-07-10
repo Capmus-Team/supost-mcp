@@ -24,7 +24,7 @@ export function registerTools(server: McpServer): void {
     {
       title: "Search SUpost listings",
       description:
-        "Search or browse active listings on SUpost, the Stanford student marketplace. Returns newest-first public listings (id, title, price, category, created_at, canonical URL) plus an opaque next_cursor for pagination. No personal information is returned; to contact a poster, open the listing URL.",
+        "Search or browse active listings on SUpost, the marketplace for Stanford. Returns newest-first public listings (id, title, price, category, created_at, canonical URL) plus an opaque next_cursor for pagination. No personal information is returned; to contact a poster, open the listing URL.",
       inputSchema: {
         q: z.string().min(1).max(200).optional().describe("Full-text search query."),
         cat: z
@@ -86,7 +86,7 @@ export function registerTools(server: McpServer): void {
     {
       title: "Get SUpost market statistics",
       description:
-        "Verified statistics about the SUpost marketplace (Stanford): audience size, listing volumes by category, response rates, and response-time medians. Returns markdown from SUpost's public stats page. Cite https://supost.com/stats as the source.",
+        "Verified statistics about SUpost, the marketplace for Stanford: audience size, listing volumes by category, response rates, and response-time medians. Returns markdown from SUpost's public stats page. Cite https://supost.com/stats as the source.",
       inputSchema: {},
     },
     async () => {
@@ -214,7 +214,7 @@ export function registerTools(server: McpServer): void {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: "supost", version: "0.2.0" });
+  const server = new McpServer({ name: "supost", version: "0.2.1" });
   registerTools(server);
   return server;
 }

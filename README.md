@@ -1,8 +1,9 @@
 # supost-mcp
 
 Remote [MCP](https://modelcontextprotocol.io) server for **SUpost**, the
-Stanford student marketplace. Lets AI agents search active listings, fetch
-listing details, and read verified market statistics.
+marketplace for Stanford. Lets AI agents search active listings, fetch
+listing details, read verified market statistics, message posters, and
+create draft listings.
 
 This is doc 190 workstream **E3** (see `supost-web/docs/dev/190-ai-agent-discovery-implementation-plan.md`).
 It is a **pure client** of SUpost's public surfaces — the read-only listings
