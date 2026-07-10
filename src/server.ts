@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SupostApiError } from "./http.js";
-import { getListing, getMarketStats, searchListings } from "./supost.js";
+import { getListing, getMarketStats, searchListings, sendMessage } from "./supost.js";
 
 function textResult(text: string, isError = false) {
   return { content: [{ type: "text" as const, text }], isError };
@@ -97,10 +97,53 @@ export function registerTools(server: McpServer): void {
       }
     }
   );
+
+  server.registerTool(
+    "send_message",
+    {
+      title: "Message a SUpost poster",
+      description:
+        "Send a message to the poster of an active SUpost listing. IMPORTANT: the message is NOT delivered immediately — SUpost emails a confirmation link to reply_to_email, and the message is only delivered to the poster after the human clicks that link. Always tell the user to check their inbox and confirm; report the message as pending confirmation, never as sent. The poster's reply goes to reply_to_email.",
+      inputSchema: {
+        post_id: z
+          .number()
+          .int()
+          .positive()
+          .describe("Numeric listing id, e.g. from search_listings or get_listing."),
+        message: z
+          .string()
+          .trim()
+          .min(1)
+          .max(5000)
+          .describe("Plain-text message to the poster (1-5000 characters)."),
+        reply_to_email: z
+          .string()
+          .trim()
+          .email()
+          .max(320)
+          .describe(
+            "The user's own email address. Receives the confirmation link and the poster's reply. Never invent or guess this - ask the user for it."
+          ),
+      },
+    },
+    async (params) => {
+      try {
+        const result = await sendMessage(params);
+        return textResult(
+          JSON.stringify(result, null, 2) +
+            "\n\nThe message is pending: a confirmation link was emailed to " +
+            params.reply_to_email +
+            ". It will only be delivered to the poster after that link is clicked."
+        );
+      } catch (error) {
+        return errorResult(error);
+      }
+    }
+  );
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: "supost", version: "0.1.0" });
+  const server = new McpServer({ name: "supost", version: "0.2.0" });
   registerTools(server);
   return server;
 }

@@ -8,7 +8,12 @@
 
 export type FetchLike = (
   url: string,
-  init?: { headers?: Record<string, string>; signal?: AbortSignal }
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  }
 ) => Promise<Response>;
 
 export class SupostApiError extends Error {
@@ -25,7 +30,7 @@ export class SupostApiError extends Error {
 const MAX_RETRY_AFTER_MS = 5_000;
 const DEFAULT_RETRY_AFTER_MS = 2_000;
 const REQUEST_TIMEOUT_MS = 15_000;
-const USER_AGENT = "supost-mcp/0.1 (+https://github.com/capmus-team/supost-mcp)";
+const USER_AGENT = "supost-mcp/0.2 (+https://github.com/capmus-team/supost-mcp)";
 
 function retryDelayMs(response: Response): number {
   const header = response.headers.get("retry-after");
@@ -41,25 +46,41 @@ export interface FetchPublicOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+export interface FetchPublicInit {
+  method?: "GET" | "POST";
+  /** JSON-serialized request body; sets content-type: application/json. */
+  body?: string;
+}
+
 export async function fetchPublic(
   url: string,
-  options: FetchPublicOptions = {}
+  options: FetchPublicOptions = {},
+  init: FetchPublicInit = {}
 ): Promise<Response> {
   const fetchImpl = options.fetchImpl ?? (fetch as FetchLike);
   const sleep =
     options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
 
-  let response = await fetchImpl(url, {
-    headers: { "user-agent": USER_AGENT, accept: "application/json, text/markdown, text/html" },
+  // A 429 means the request was rejected before processing, so a single
+  // retry is safe for POST too.
+  const requestInit = () => ({
+    method: init.method ?? "GET",
+    headers: {
+      "user-agent": USER_AGENT,
+      accept: "application/json, text/markdown, text/html",
+      ...(init.body !== undefined
+        ? { "content-type": "application/json" }
+        : {}),
+    },
+    ...(init.body !== undefined ? { body: init.body } : {}),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
+  let response = await fetchImpl(url, requestInit());
+
   if (response.status === 429) {
     await sleep(retryDelayMs(response));
-    response = await fetchImpl(url, {
-      headers: { "user-agent": USER_AGENT, accept: "application/json, text/markdown, text/html" },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    response = await fetchImpl(url, requestInit());
     if (response.status === 429) {
       throw new SupostApiError(
         "SUpost rate limit reached (60 requests/minute per IP). Wait a minute before retrying; results are CDN-cached for 5 minutes, so repeating an identical query sooner returns nothing new.",
