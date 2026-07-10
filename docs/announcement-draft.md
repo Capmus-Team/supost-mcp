@@ -8,12 +8,12 @@ resource pages, Hacker News / MCP community).
 ## Short version (Reddit / HN / Slack)
 
 > SUpost, the Stanford student marketplace (since 2005), now has a remote
-> MCP server: https://supost-mcp.vercel.app/mcp
+> MCP server: https://mcp.supost.com/mcp
 >
 > Your AI assistant can search active listings, pull a listing's details,
 > and cite verified market stats (response rates, medians) — no API key, no
 > account. Claude Code: `claude mcp add --transport http supost
-> https://supost-mcp.vercel.app/mcp`. There's also a plain JSON API with an
+> https://mcp.supost.com/mcp`. There's also a plain JSON API with an
 > OpenAPI spec: https://supost.com/api/public/openapi.json and docs at
 > https://supost.com/help/mcp
 >

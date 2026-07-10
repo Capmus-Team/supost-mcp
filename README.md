@@ -29,7 +29,7 @@ Deployed on Vercel as a stateless **streamable-HTTP** MCP endpoint
 `@modelcontextprotocol/sdk`):
 
 ```
-https://<deployment>/mcp        (rewritten to /api/mcp)
+https://mcp.supost.com/mcp        (rewritten to /api/mcp)
 ```
 
 No sessions, no Redis, no auth — every request is independently served and
@@ -49,7 +49,7 @@ stack).
 ### Connect a client
 
 ```sh
-claude mcp add --transport http supost https://<deployment>/mcp
+claude mcp add --transport http supost https://mcp.supost.com/mcp
 ```
 
 or in any MCP client that supports remote servers, add the URL above as a
@@ -93,4 +93,4 @@ single retry, structured failure).
       the registry listing and /help/mcp are live (doc 190 workstream F).
 - [x] E2 is live on production (`supost.com`, 2026-07-09); smoke script
       verified against production, and the server is deployed at
-      `https://supost-mcp.vercel.app/mcp`.
+      `https://mcp.supost.com/mcp`.
