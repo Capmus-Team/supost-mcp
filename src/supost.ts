@@ -171,3 +171,45 @@ export async function getMarketStats(
   }
   return response.text();
 }
+
+export interface SendMessageParams {
+  post_id: number;
+  message: string;
+  reply_to_email: string;
+}
+
+export interface SendMessageResult {
+  status: "pending_verification";
+  email: string;
+  detail?: string;
+}
+
+/**
+ * Submits a message to a listing's poster via the public messages endpoint
+ * (doc 222 Phase 1). The message is NOT delivered immediately: SUpost emails
+ * a confirmation link to `reply_to_email`, and the message is only created
+ * and delivered after the human clicks it. Report the result as "pending
+ * confirmation", never as "sent".
+ */
+export async function sendMessage(
+  params: SendMessageParams,
+  options: FetchPublicOptions = {}
+): Promise<SendMessageResult> {
+  const response = await fetchPublic(
+    `${getBaseUrl()}/api/public/messages`,
+    options,
+    { method: "POST", body: JSON.stringify(params) }
+  );
+  if (!response.ok) {
+    await readJsonError(response);
+  }
+  const body = (await response.json()) as SendMessageResult;
+  if (body.status !== "pending_verification") {
+    throw new SupostApiError(
+      "Unexpected response shape from SUpost messages API.",
+      502,
+      "bad_upstream_response"
+    );
+  }
+  return body;
+}

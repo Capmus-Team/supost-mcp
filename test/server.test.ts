@@ -19,14 +19,41 @@ afterEach(() => {
 });
 
 describe("MCP server", () => {
-  it("exposes exactly the three E3 tools", async () => {
+  it("exposes exactly the published tools", async () => {
     const client = await connectedClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "get_listing",
       "get_market_stats",
       "search_listings",
+      "send_message",
     ]);
+  });
+
+  it("send_message POSTs to the public messages API and reports pending, not sent", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, init });
+      return new Response(
+        JSON.stringify({ status: "pending_verification", email: "buyer@example.com" }),
+        { status: 202, headers: { "content-type": "application/json" } }
+      );
+    });
+    const client = await connectedClient();
+    const result = await client.callTool({
+      name: "send_message",
+      arguments: {
+        post_id: 42,
+        message: "Hi, is this still available?",
+        reply_to_email: "buyer@example.com",
+      },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(new URL(requests[0]?.url ?? "").pathname).toBe("/api/public/messages");
+    expect(requests[0]?.init?.method).toBe("POST");
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toContain("pending");
+    expect(content[0]?.text).toContain("confirmation link");
   });
 
   it("search_listings round-trips params to the API and returns JSON text", async () => {

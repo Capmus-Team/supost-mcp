@@ -1,8 +1,8 @@
 {
   "name": "supost-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Remote MCP server for SUpost, the Stanford student marketplace — search listings, fetch listing details, and read market stats via the public read-only API.",
+  "description": "Remote MCP server for SUpost, the Stanford student marketplace — search listings, fetch listing details, read market stats, and message posters (delivery requires the sender to click an emailed confirmation link).",
   "type": "module",
   "scripts": {
     "test": "vitest run",

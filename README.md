@@ -17,9 +17,11 @@ base URL.
 | `search_listings` | `GET /api/public/listings` | Newest-first active listings (id, title, price, category, created_at, canonical URL) with opaque cursor pagination. Params: `q`, `cat`, `university`, `max_price`, `limit` (≤50), `cursor`. |
 | `get_listing` | `GET /post/index/<id>` → canonical listing page | One listing incl. full description, parsed from the page's schema.org `Product` JSON-LD. |
 | `get_market_stats` | `GET /stats.md` | The public stats page's markdown rendition (audience, listing volumes, response rates/times). |
+| `send_message` | `POST /api/public/messages` | Submits a message to a listing's poster. NOT delivered immediately: a confirmation link is emailed to `reply_to_email`, and the message only goes out after the human clicks it — agents must report it as pending confirmation, never sent. |
 
-No personal information is ever returned; to contact a poster, agents open
-the listing's `url` and use the on-site message flow. API terms:
+No personal information is ever returned. `send_message` is the supported
+way to contact a poster; the listing's `url` also carries the on-site
+message form. API terms:
 `https://supost.com/api/public/openapi.json`.
 
 ## Hosting

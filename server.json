@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.Capmus-Team/supost-mcp",
-  "description": "Search listings, get details, and read market stats from SUpost, the Stanford student marketplace",
+  "description": "Search listings, get details, read market stats, and message posters on SUpost, the Stanford student marketplace",
   "repository": {
     "url": "https://github.com/Capmus-Team/supost-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "remotes": [
     {
       "type": "streamable-http",
