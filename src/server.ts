@@ -197,15 +197,27 @@ export function registerTools(server: McpServer): void {
           .describe(
             "The poster's own email address - determines posting eligibility and receives replies. Never invent or guess this - ask the user for it."
           ),
+        publish: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set true when the user wants to publish immediately without photos: SUpost emails them a one-click publish link (free-posting-tier emails such as stanford.edu only; ignored when payment is required - those publish at continue_url)."
+          ),
       },
     },
     async (params) => {
       try {
         const result = await createPost(params);
-        return textResult(
-          JSON.stringify(result, null, 2) +
-            "\n\nDraft created but NOT published. Send the poster to continue_url to add photos, review, and publish. That link grants edit access - share it only with the poster."
-        );
+        const followUp = result.publish_email_sent
+          ? "\n\nA one-click publish link was emailed to " +
+            params.email +
+            " - clicking it publishes the post immediately, no photos needed. To add photos first, use continue_url instead."
+          : "\n\nDraft created but NOT published. Send the poster to continue_url to add photos, review, and publish" +
+            (result.payment_required
+              ? " (publishing there includes choosing a posting plan)."
+              : ".") +
+            " That link grants edit access - share it only with the poster.";
+        return textResult(JSON.stringify(result, null, 2) + followUp);
       } catch (error) {
         return errorResult(error);
       }

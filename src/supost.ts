@@ -257,11 +257,14 @@ export interface CreatePostParams {
   body: string;
   price?: number;
   email: string;
+  publish?: boolean;
 }
 
 export interface CreatePostResult {
   draft_id: number;
   continue_url: string;
+  payment_required?: boolean;
+  publish_email_sent?: boolean;
   detail?: string;
 }
 
