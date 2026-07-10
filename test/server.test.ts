@@ -23,8 +23,10 @@ describe("MCP server", () => {
     const client = await connectedClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "create_post",
       "get_listing",
       "get_market_stats",
+      "list_categories",
       "search_listings",
       "send_message",
     ]);

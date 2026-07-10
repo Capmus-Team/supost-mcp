@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SupostApiError } from "./http.js";
-import { getListing, getMarketStats, searchListings, sendMessage } from "./supost.js";
+import { createPost, getListing, getMarketStats, listCategories, searchListings, sendMessage } from "./supost.js";
 
 function textResult(text: string, isError = false) {
   return { content: [{ type: "text" as const, text }], isError };
@@ -134,6 +134,77 @@ export function registerTools(server: McpServer): void {
             "\n\nThe message is pending: a confirmation link was emailed to " +
             params.reply_to_email +
             ". It will only be delivered to the poster after that link is clicked."
+        );
+      } catch (error) {
+        return errorResult(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_categories",
+    {
+      title: "List SUpost categories",
+      description:
+        "The active category/subcategory taxonomy on SUpost — the valid category and subcategory values for create_post (and category filters for search_listings).",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return textResult(JSON.stringify(await listCategories(), null, 2));
+      } catch (error) {
+        return errorResult(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_post",
+    {
+      title: "Create a SUpost draft listing",
+      description:
+        "Create a DRAFT listing on SUpost on the poster's behalf. IMPORTANT: the draft is NOT published — the returned continue_url opens SUpost's create-post wizard with the draft loaded, where the poster adds photos, reviews, and publishes (completing payment first if their email is not on the free tier; Stanford emails post free). Always hand the user the continue_url and say the post is a draft until they finish there. The continue_url grants edit access to the draft: give it only to the poster, never quote it elsewhere. Posting eligibility is decided by the email: non-Stanford emails need an active subscription or day pass (a 403 explains the next step).",
+      inputSchema: {
+        category: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .describe('Category id or label, e.g. "housing", "for sale" (see list_categories).'),
+        subcategory: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .describe('Subcategory id or name within the category, e.g. "bicycles" (see list_categories).'),
+        title: z.string().trim().min(1).max(255).describe("Listing title."),
+        body: z
+          .string()
+          .trim()
+          .min(1)
+          .max(15000)
+          .describe("Plain-text listing description."),
+        price: z
+          .number()
+          .min(0)
+          .optional()
+          .describe("USD. Required for for-sale and housing-offering listings."),
+        email: z
+          .string()
+          .trim()
+          .email()
+          .max(320)
+          .describe(
+            "The poster's own email address - determines posting eligibility and receives replies. Never invent or guess this - ask the user for it."
+          ),
+      },
+    },
+    async (params) => {
+      try {
+        const result = await createPost(params);
+        return textResult(
+          JSON.stringify(result, null, 2) +
+            "\n\nDraft created but NOT published. Send the poster to continue_url to add photos, review, and publish. That link grants edit access - share it only with the poster."
         );
       } catch (error) {
         return errorResult(error);

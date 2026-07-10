@@ -17,6 +17,8 @@ base URL.
 | `search_listings` | `GET /api/public/listings` | Newest-first active listings (id, title, price, category, created_at, canonical URL) with opaque cursor pagination. Params: `q`, `cat`, `university`, `max_price`, `limit` (≤50), `cursor`. |
 | `get_listing` | `GET /post/index/<id>` → canonical listing page | One listing incl. full description, parsed from the page's schema.org `Product` JSON-LD. |
 | `get_market_stats` | `GET /stats.md` | The public stats page's markdown rendition (audience, listing volumes, response rates/times). |
+| `list_categories` | `GET /api/public/categories` | The active category/subcategory taxonomy — valid `create_post` values. |
+| `create_post` | `POST /api/public/posts` | Creates a DRAFT listing; returns a `continue_url` where the poster adds photos, reviews, and publishes (paying first when not on the free tier). Never publishes directly. |
 | `send_message` | `POST /api/public/messages` | Submits a message to a listing's poster. NOT delivered immediately: a confirmation link is emailed to `reply_to_email`, and the message only goes out after the human clicks it — agents must report it as pending confirmation, never sent. |
 
 No personal information is ever returned. `send_message` is the supported

@@ -213,3 +213,76 @@ export async function sendMessage(
   }
   return body;
 }
+
+export interface PublicCategory {
+  id: number;
+  label: string;
+  subcategories: Array<{ id: number; name: string }>;
+}
+
+/** The active category/subcategory taxonomy (valid create_post values). */
+export async function listCategories(
+  options: FetchPublicOptions = {}
+): Promise<{ categories: PublicCategory[] }> {
+  const response = await fetchPublic(
+    `${getBaseUrl()}/api/public/categories`,
+    options
+  );
+  if (!response.ok) {
+    await readJsonError(response);
+  }
+  const body = (await response.json()) as { categories?: PublicCategory[] };
+  if (!Array.isArray(body.categories)) {
+    throw new SupostApiError(
+      "Unexpected response shape from SUpost categories API.",
+      502,
+      "bad_upstream_response"
+    );
+  }
+  return { categories: body.categories };
+}
+
+export interface CreatePostParams {
+  category: string;
+  subcategory: string;
+  title: string;
+  body: string;
+  price?: number;
+  email: string;
+}
+
+export interface CreatePostResult {
+  draft_id: number;
+  continue_url: string;
+  detail?: string;
+}
+
+/**
+ * Creates a DRAFT listing via the public posts endpoint (doc 222 Phase 2).
+ * The draft is never published by the API: the human opens `continue_url`
+ * to add photos, review, and publish (paying first when their email isn't
+ * on the free posting tier). `continue_url` grants edit access to the
+ * draft — hand it to the poster only.
+ */
+export async function createPost(
+  params: CreatePostParams,
+  options: FetchPublicOptions = {}
+): Promise<CreatePostResult> {
+  const response = await fetchPublic(
+    `${getBaseUrl()}/api/public/posts`,
+    options,
+    { method: "POST", body: JSON.stringify(params) }
+  );
+  if (!response.ok) {
+    await readJsonError(response);
+  }
+  const body = (await response.json()) as CreatePostResult;
+  if (typeof body.draft_id !== "number" || typeof body.continue_url !== "string") {
+    throw new SupostApiError(
+      "Unexpected response shape from SUpost posts API.",
+      502,
+      "bad_upstream_response"
+    );
+  }
+  return body;
+}
