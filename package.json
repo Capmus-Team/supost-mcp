@@ -1,0 +1,23 @@
+{
+  "name": "supost-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remote MCP server for SUpost, the Stanford student marketplace — search listings, fetch listing details, and read market stats via the public read-only API.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "mcp-handler": "^1.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.10"
+  }
+}
