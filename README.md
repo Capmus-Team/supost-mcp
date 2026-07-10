@@ -77,14 +77,20 @@ single retry, structured failure).
 
 ## Follow-ups (manual steps)
 
-- [ ] **Publish to the MCP registry** (registry.modelcontextprotocol.io) once
-      the production deployment is live, so agent platforms can discover it.
-- [ ] **Add a `/help/mcp` docs page in supost-web** (pattern:
-      `src/lib/help-guides.ts` registry) documenting the endpoint URL, tools,
-      and terms; link it from `llms.txt`.
-- [ ] **PR/citation announcement** — an early classifieds MCP is itself a
-      story ("first student-marketplace MCP server"); feeds the doc 190
-      workstream F off-site citation push (Stanford Daily, Reddit, .edu
-      resource pages).
-- [ ] After E2 ships to production (`supost.com`), re-run the smoke script
-      against production and flip any preview URLs in client configs.
+- [ ] **Publish to the MCP registry** — [server.json](server.json) is ready.
+      Make the repo public first (`gh repo edit Capmus-Team/supost-mcp
+      --visibility public`), then:
+      ```sh
+      brew install mcp-publisher
+      mcp-publisher login github   # device flow, needs a browser
+      mcp-publisher publish        # from the repo root
+      ```
+- [x] **`/help/mcp` docs page in supost-web** — PR
+      [#1242](https://github.com/Capmus-Team/supost-web/pull/1242) (guide
+      registry entry + llms.txt MCP line); live once merged to dev → master.
+- [ ] **PR/citation announcement** — draft and story beats in
+      [docs/announcement-draft.md](docs/announcement-draft.md); post after
+      the registry listing and /help/mcp are live (doc 190 workstream F).
+- [x] E2 is live on production (`supost.com`, 2026-07-09); smoke script
+      verified against production, and the server is deployed at
+      `https://supost-mcp.vercel.app/mcp`.
