@@ -9,6 +9,10 @@ const PRODUCT_LD = {
   url: "https://supost.com/post/sublet-in-escondido-village-kennedy-130088421",
   description: "Subletting my place in Kennedy.",
   category: "housing",
+  image: [
+    "https://cdn.supost.com/posts/130088421/post_130088421a",
+    "https://cdn.supost.com/posts/130088421/post_130088421b",
+  ],
   offers: { "@type": "Offer", price: 1517, priceCurrency: "USD" },
 };
 
@@ -52,7 +56,17 @@ describe("getListing", () => {
       price: 1517,
       category: "housing",
       url: PRODUCT_LD.url,
+      photos: PRODUCT_LD.image,
     });
+  });
+
+  it("returns photos: [] for a listing without images", async () => {
+    const bare = { ...PRODUCT_LD };
+    delete (bare as Record<string, unknown>).image;
+    const page = `<script type="application/ld+json">${JSON.stringify(bare)}</script>`;
+    const { fetchImpl } = fetchStub([htmlResponse(page)]);
+    const listing = await getListing(130088421, { fetchImpl });
+    expect(listing.photos).toEqual([]);
   });
 
   it("maps a 404 page to a not_found error", async () => {

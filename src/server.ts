@@ -66,7 +66,7 @@ export function registerTools(server: McpServer): void {
     {
       title: "Get a SUpost listing",
       description:
-        "Fetch one SUpost listing by numeric id, including its full description. Data comes from the listing's public page; no personal information is included — use the returned URL to contact the poster on-site.",
+        "Fetch one SUpost listing by numeric id, including its full description and public photo URLs. Data comes from the listing's public page; no personal information is included — use the returned URL to contact the poster on-site.",
       inputSchema: {
         id: z.number().int().positive().describe("Numeric listing id, e.g. from search_listings."),
       },
@@ -214,7 +214,7 @@ export function registerTools(server: McpServer): void {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: "supost", version: "0.2.1" });
+  const server = new McpServer({ name: "supost", version: "0.2.2" });
   registerTools(server);
   return server;
 }

@@ -1,6 +1,6 @@
 {
   "name": "supost-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Remote MCP server for SUpost, the marketplace for Stanford — search listings, fetch listing details, read market stats, and message posters and create draft listings (messages require an emailed confirmation click; drafts are published by the human at a hand-off URL).",
   "type": "module",

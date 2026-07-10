@@ -80,6 +80,8 @@ export interface ListingDetail {
   price: number | null;
   category: string | null;
   url: string;
+  /** Public CDN photo URLs, in listing order. Empty when the post has no photos. */
+  photos: string[];
 }
 
 /**
@@ -95,6 +97,7 @@ export function extractProductJsonLd(html: string): {
   description?: string;
   category?: string;
   url?: string;
+  image?: string | string[];
   offers?: { price?: number };
 } | null {
   const scripts = html.matchAll(
@@ -143,6 +146,10 @@ export async function getListing(
       "bad_upstream_response"
     );
   }
+  const photos = (
+    Array.isArray(product.image) ? product.image : product.image ? [product.image] : []
+  ).filter((entry): entry is string => typeof entry === "string");
+
   return {
     id,
     title: product.name ?? null,
@@ -150,6 +157,7 @@ export async function getListing(
     price: typeof product.offers?.price === "number" ? product.offers.price : null,
     category: product.category ?? null,
     url: product.url ?? pageUrl,
+    photos,
   };
 }
 
