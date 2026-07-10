@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.Capmus-Team/supost-mcp",
-  "description": "Search listings, get stats, message posters, and create drafts on SUpost, the Stanford marketplace",
+  "description": "Search listings, message posters, and create drafts on SUpost, the marketplace for Stanford",
   "repository": {
     "url": "https://github.com/Capmus-Team/supost-mcp",
     "source": "github"
