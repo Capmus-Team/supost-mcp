@@ -163,7 +163,7 @@ export function registerTools(server: McpServer): void {
     {
       title: "Create a SUpost draft listing",
       description:
-        "Create a DRAFT listing on SUpost on the poster's behalf. Any email is accepted — never ask the user to qualify first. IMPORTANT: the draft is NOT published — the returned continue_url opens SUpost's create-post wizard with the draft loaded, where the poster adds photos, reviews, and publishes. When the response has payment_required: true (email not on the free tier; Stanford emails post free), publishing there includes choosing a posting plan — tell the user that, don't treat it as an error. Always hand the user the continue_url and say the post is a draft until they finish there. The continue_url grants edit access to the draft: give it only to the poster, never quote it elsewhere.",
+        "Create a DRAFT listing on SUpost on the poster's behalf. Any email is accepted — never ask the user to qualify first. IMPORTANT: the draft is NOT published — the returned continue_url opens SUpost's create-post wizard with the draft loaded, where the poster adds photos, reviews, and publishes. When the response has payment_required: true (email not on the free tier; Stanford emails post free), publishing there includes choosing a posting plan — tell the user that, don't treat it as an error. Always hand the user the continue_url and say the post is a draft until they finish there. Never drive a browser to fill or publish the wizard on the user's behalf - for instant publishing use publish: true instead. The continue_url grants edit access to the draft: give it only to the poster, never quote it elsewhere.",
       inputSchema: {
         category: z
           .string()
