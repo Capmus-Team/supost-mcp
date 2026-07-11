@@ -1,7 +1,19 @@
 # supost-mcp
 
 Remote [MCP](https://modelcontextprotocol.io) server for **SUpost**, the
-marketplace for Stanford. Lets AI agents search active listings, fetch
+marketplace for Stanford — and, via `BRAND=capmus`, for **Capmus**
+(capmus.com), which serves the same public API from the same supost-web
+codebase. One repo, two Vercel projects:
+
+| Brand | Vercel project | Endpoint | Env |
+| --- | --- | --- | --- |
+| SUpost | `supost-mcp` | `https://mcp.supost.com/mcp` | (defaults) |
+| Capmus | `capmus-mcp` | `https://mcp.capmus.com/mcp` | `BRAND=capmus` |
+
+`BRAND` selects the server name, tool titles/descriptions, and default base
+URL; `SUPOST_BASE_URL` still overrides the base URL for previews.
+
+Lets AI agents search active listings, fetch
 listing details, read verified market statistics, message posters, and
 create draft listings.
 
