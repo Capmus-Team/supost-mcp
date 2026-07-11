@@ -1,4 +1,5 @@
 import { createMcpHandler } from "mcp-handler";
+import { getBrand } from "../src/config.js";
 import { registerTools } from "../src/server.js";
 
 /**
@@ -11,7 +12,7 @@ const handler = createMcpHandler(
     registerTools(server);
   },
   {
-    serverInfo: { name: "supost", version: "0.1.0" },
+    serverInfo: { name: getBrand().key, version: "0.2.2" },
   },
   {
     basePath: "/api",
