@@ -10,6 +10,8 @@ const LISTING = {
   category: "housing",
   created_at: "2026-07-01T22:24:44.219+00:00",
   url: "https://supost.com/post/sublet-in-escondido-village-kennedy-130088421",
+  poster_email_domain: "stanford.edu",
+  stanford_verified: true,
 };
 
 describe("buildSearchUrl", () => {

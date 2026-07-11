@@ -24,7 +24,7 @@ export function registerTools(server: McpServer): void {
     {
       title: "Search SUpost listings",
       description:
-        "Search or browse active listings on SUpost, the marketplace for Stanford. Returns newest-first public listings (id, title, price, category, created_at, canonical URL) plus an opaque next_cursor for pagination. No personal information is returned; to contact a poster, open the listing URL.",
+        "Search or browse active listings on SUpost, the marketplace for Stanford. Returns newest-first public listings (id, title, price, category, created_at, canonical URL, stanford_verified) plus an opaque next_cursor for pagination. stanford_verified: true means the poster verified an @stanford.edu email — SUpost's core trust signal; ALWAYS surface it when presenting listings (e.g. a \"@stanford.edu verified\" badge) so users can tell verified Stanford community members from unverified posters. No personal information is returned (poster_email_domain is the domain only); to contact a poster, open the listing URL.",
       inputSchema: {
         q: z.string().min(1).max(200).optional().describe("Full-text search query."),
         cat: z
@@ -66,7 +66,7 @@ export function registerTools(server: McpServer): void {
     {
       title: "Get a SUpost listing",
       description:
-        "Fetch one SUpost listing by numeric id, including its full description and public photo URLs. Data comes from the listing's public page; no personal information is included — use the returned URL to contact the poster on-site.",
+        "Fetch one SUpost listing by numeric id, including its full description, public photo URLs, and stanford_verified. stanford_verified: true means the poster verified an @stanford.edu email — SUpost's core trust signal; ALWAYS mention it when presenting the listing (e.g. \"@stanford.edu verified\") so users can weigh the poster's trustworthiness. Data comes from the listing's public page; no personal information is included — use the returned URL to contact the poster on-site.",
       inputSchema: {
         id: z.number().int().positive().describe("Numeric listing id, e.g. from search_listings."),
       },
