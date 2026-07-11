@@ -83,7 +83,7 @@ export async function fetchPublic(
     response = await fetchImpl(url, requestInit());
     if (response.status === 429) {
       throw new SupostApiError(
-        "SUpost rate limit reached (60 requests/minute per IP). Wait a minute before retrying; results are CDN-cached for 5 minutes, so repeating an identical query sooner returns nothing new.",
+        "Marketplace rate limit reached (60 requests/minute per IP). Wait a minute before retrying; results are CDN-cached for 5 minutes, so repeating an identical query sooner returns nothing new.",
         429,
         "rate_limited"
       );

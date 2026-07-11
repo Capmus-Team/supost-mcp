@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getBaseUrl, getBrand } from "./config.js";
 import { SupostApiError } from "./http.js";
 import { createPost, getListing, getMarketStats, listCategories, searchListings, sendMessage } from "./supost.js";
 
@@ -17,14 +18,17 @@ function errorResult(error: unknown) {
   );
 }
 
-/** Registers the three E3 tools on a server instance (doc 190 E3). */
+/** Registers the E3 tools on a server instance (doc 190 E3). */
 export function registerTools(server: McpServer): void {
+  const brand = getBrand();
+  const site = brand.siteName;
+
   server.registerTool(
     "search_listings",
     {
-      title: "Search SUpost listings",
+      title: `Search ${site} listings`,
       description:
-        "Search or browse active listings on SUpost, the marketplace for Stanford. Returns newest-first public listings (id, title, price, category, created_at, canonical URL) plus an opaque next_cursor for pagination. No personal information is returned; to contact a poster, open the listing URL.",
+        `Search or browse active listings on ${site}, ${brand.descriptor}. Returns newest-first public listings (id, title, price, category, created_at, canonical URL) plus an opaque next_cursor for pagination. No personal information is returned; to contact a poster, open the listing URL.`,
       inputSchema: {
         q: z.string().min(1).max(200).optional().describe("Full-text search query."),
         cat: z
@@ -38,7 +42,7 @@ export function registerTools(server: McpServer): void {
           .int()
           .positive()
           .optional()
-          .describe("Numeric university id. Defaults to Stanford on supost.com."),
+          .describe(brand.universityNote),
         max_price: z
           .number()
           .min(0)
@@ -64,9 +68,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool(
     "get_listing",
     {
-      title: "Get a SUpost listing",
+      title: `Get a ${site} listing`,
       description:
-        "Fetch one SUpost listing by numeric id, including its full description and public photo URLs. Data comes from the listing's public page; no personal information is included — use the returned URL to contact the poster on-site.",
+        `Fetch one ${site} listing by numeric id, including its full description and public photo URLs. Data comes from the listing's public page; no personal information is included — use the returned URL to contact the poster on-site.`,
       inputSchema: {
         id: z.number().int().positive().describe("Numeric listing id, e.g. from search_listings."),
       },
@@ -84,9 +88,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool(
     "get_market_stats",
     {
-      title: "Get SUpost market statistics",
+      title: `Get ${site} market statistics`,
       description:
-        "Verified statistics about SUpost, the marketplace for Stanford: audience size, listing volumes by category, response rates, and response-time medians. Returns markdown from SUpost's public stats page. Cite https://supost.com/stats as the source.",
+        `Verified statistics about ${site}, ${brand.descriptor}: audience size, listing volumes by category, response rates, and response-time medians. Returns markdown from ${site}'s public stats page. Cite ${getBaseUrl()}/stats as the source.`,
       inputSchema: {},
     },
     async () => {
@@ -101,9 +105,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool(
     "send_message",
     {
-      title: "Message a SUpost poster",
+      title: `Message a ${site} poster`,
       description:
-        "Send a message to the poster of an active SUpost listing. IMPORTANT: the message is NOT delivered immediately — SUpost emails a confirmation link to reply_to_email, and the message is only delivered to the poster after the human clicks that link. Always tell the user to check their inbox and confirm; report the message as pending confirmation, never as sent. The poster's reply goes to reply_to_email.",
+        `Send a message to the poster of an active ${site} listing. IMPORTANT: the message is NOT delivered immediately — ${site} emails a confirmation link to reply_to_email, and the message is only delivered to the poster after the human clicks that link. Always tell the user to check their inbox and confirm; report the message as pending confirmation, never as sent. The poster's reply goes to reply_to_email.`,
       inputSchema: {
         post_id: z
           .number()
@@ -144,9 +148,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool(
     "list_categories",
     {
-      title: "List SUpost categories",
+      title: `List ${site} categories`,
       description:
-        "The active category/subcategory taxonomy on SUpost — the valid category and subcategory values for create_post (and category filters for search_listings).",
+        `The active category/subcategory taxonomy on ${site} — the valid category and subcategory values for create_post (and category filters for search_listings).`,
       inputSchema: {},
     },
     async () => {
@@ -161,9 +165,9 @@ export function registerTools(server: McpServer): void {
   server.registerTool(
     "create_post",
     {
-      title: "Create a SUpost draft listing",
+      title: `Create a ${site} draft listing`,
       description:
-        "Create a DRAFT listing on SUpost on the poster's behalf. Any email is accepted — never ask the user to qualify first. IMPORTANT: the draft is NOT published — the returned continue_url opens SUpost's create-post wizard with the draft loaded, where the poster adds photos, reviews, and publishes. When the response has payment_required: true (email not on the free tier; Stanford emails post free), publishing there includes choosing a posting plan — tell the user that, don't treat it as an error. Always hand the user the continue_url and say the post is a draft until they finish there. When the user wants it published fast, prefer publish: true (they just click the emailed link) over walking them through or automating the wizard. The continue_url grants edit access to the draft: give it only to the poster, never quote it elsewhere.",
+        `Create a DRAFT listing on ${site} on the poster's behalf. Any email is accepted — never ask the user to qualify first. IMPORTANT: the draft is NOT published — the returned continue_url opens ${site}'s create-post wizard with the draft loaded, where the poster adds photos, reviews, and publishes. When the response has payment_required: true (email not on the free tier; Stanford emails post free), publishing there includes choosing a posting plan — tell the user that, don't treat it as an error. Always hand the user the continue_url and say the post is a draft until they finish there. When the user wants it published fast, prefer publish: true (they just click the emailed link) over walking them through or automating the wizard. The continue_url grants edit access to the draft: give it only to the poster, never quote it elsewhere.`,
       inputSchema: {
         category: z
           .string()
@@ -201,7 +205,7 @@ export function registerTools(server: McpServer): void {
           .boolean()
           .optional()
           .describe(
-            "Set true when the user wants to publish immediately without photos: SUpost emails them a one-click publish link (free-posting-tier emails such as stanford.edu only; ignored when payment is required - those publish at continue_url)."
+            `Set true when the user wants to publish immediately without photos: ${site} emails them a one-click publish link (free-posting-tier emails such as stanford.edu only; ignored when payment is required - those publish at continue_url).`
           ),
       },
     },
@@ -226,7 +230,7 @@ export function registerTools(server: McpServer): void {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: "supost", version: "0.2.2" });
+  const server = new McpServer({ name: getBrand().key, version: "0.2.2" });
   registerTools(server);
   return server;
 }
