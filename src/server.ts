@@ -3,22 +3,63 @@ import { z } from "zod";
 import { captureToolCall } from "./analytics.js";
 import { getBaseUrl, getBrand } from "./config.js";
 import { SupostApiError } from "./http.js";
+import { logToolCall } from "./toollog.js";
 import { createPost, getListing, getMarketStats, listCategories, searchListings, sendMessage } from "./supost.js";
 
 function textResult(text: string, isError = false) {
   return { content: [{ type: "text" as const, text }], isError };
 }
 
-/** Wraps a tool handler with usage capture (analytics.ts). Awaited — a
- *  dangling promise would be frozen when the serverless function returns —
- *  but captureToolCall never throws and self-limits to 3s. */
-function withCapture<A extends unknown[], R extends { isError?: boolean }>(
-  tool: string,
-  handler: (...args: A) => Promise<R>
-): (...args: A) => Promise<R> {
+/** Sanitized argument subset for the PostHog event — the "what are users
+ *  asking for" signal (search queries, filters, ids) WITHOUT PII: never
+ *  emails, message bodies, or draft text. The full raw arguments go to the
+ *  private DB log instead (toollog.ts). */
+const POSTHOG_PROPS: Record<
+  string,
+  (args: Record<string, unknown>) => Record<string, unknown>
+> = {
+  search_listings: (a) => ({
+    q: a.q,
+    cat: a.cat,
+    university: a.university,
+    max_price: a.max_price,
+    limit: a.limit,
+    has_cursor: a.cursor !== undefined,
+  }),
+  get_listing: (a) => ({ listing_id: a.id }),
+  send_message: (a) => ({
+    post_id: a.post_id,
+    message_chars: typeof a.message === "string" ? a.message.length : undefined,
+  }),
+  create_post: (a) => ({
+    category: a.category,
+    subcategory: a.subcategory,
+    price: a.price,
+    publish: a.publish,
+    title_chars: typeof a.title === "string" ? a.title.length : undefined,
+    body_chars: typeof a.body === "string" ? a.body.length : undefined,
+  }),
+};
+
+/** Wraps a tool handler with usage capture: sanitized PostHog event
+ *  (analytics.ts) + full-args DB log (toollog.ts). Awaited — a dangling
+ *  promise would be frozen when the serverless function returns — but both
+ *  sinks never throw and self-limit to 3s. */
+function withCapture<
+  A extends unknown[],
+  R extends { isError?: boolean; content: Array<{ type: "text"; text: string }> },
+>(tool: string, handler: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
   return async (...args: A) => {
     const result = await handler(...args);
-    await captureToolCall(tool, !result.isError);
+    const ok = !result.isError;
+    const toolArgs =
+      args[0] !== null && typeof args[0] === "object" && !Array.isArray(args[0])
+        ? (args[0] as Record<string, unknown>)
+        : {};
+    await Promise.all([
+      captureToolCall(tool, ok, POSTHOG_PROPS[tool]?.(toolArgs) ?? {}),
+      logToolCall(tool, ok, toolArgs, ok ? null : (result.content[0]?.text ?? null)),
+    ]);
     return result;
   };
 }

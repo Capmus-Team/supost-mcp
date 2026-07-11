@@ -35,6 +35,16 @@ describe("captureToolCall", () => {
     });
   });
 
+  it("merges sanitized props without letting them clobber core fields", async () => {
+    process.env.NODE_ENV = "production";
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+    await captureToolCall("search_listings", true, { q: "bike", tool: "spoof" });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body.properties.q).toBe("bike");
+    expect(body.properties.tool).toBe("search_listings");
+  });
+
   it("uses the brand in the distinct_id", async () => {
     process.env.NODE_ENV = "production";
     process.env.BRAND = "capmus";

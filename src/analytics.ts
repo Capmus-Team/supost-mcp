@@ -1,8 +1,10 @@
 /**
  * Fire-and-forget PostHog capture of tool calls — the read-side usage signal
  * the marketplace DB can't see (only write actions land in
- * analytics.conversion_event). One event per tool invocation, no params and
- * no PII: tool name, brand, and whether the call errored.
+ * analytics.conversion_event). One event per tool invocation with a
+ * SANITIZED subset of arguments and no PII: tool name, brand, whether the
+ * call errored, plus per-tool props like the search query — never emails or
+ * message/draft text (the full payload goes to the DB log, toollog.ts).
  *
  * The key is PostHog's *publishable* client token (same project 467959 the
  * web app uses), so this keeps the repo's no-secrets property. Set
@@ -25,7 +27,11 @@ function captureKey(): string | null {
  * distinct_id ("mcp.supost.com") keeps this from minting a PostHog person
  * per request.
  */
-export function captureToolCall(tool: string, ok: boolean): Promise<void> {
+export function captureToolCall(
+  tool: string,
+  ok: boolean,
+  props: Record<string, unknown> = {}
+): Promise<void> {
   const key = captureKey();
   if (!key) return Promise.resolve();
   const brand = getBrand().key;
@@ -37,6 +43,7 @@ export function captureToolCall(tool: string, ok: boolean): Promise<void> {
       event: "mcp_tool_called",
       distinct_id: `mcp.${brand}.com`,
       properties: {
+        ...props,
         tool,
         brand,
         ok,
