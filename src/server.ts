@@ -9,14 +9,16 @@ function textResult(text: string, isError = false) {
   return { content: [{ type: "text" as const, text }], isError };
 }
 
-/** Wraps a tool handler with fire-and-forget usage capture (analytics.ts). */
+/** Wraps a tool handler with usage capture (analytics.ts). Awaited — a
+ *  dangling promise would be frozen when the serverless function returns —
+ *  but captureToolCall never throws and self-limits to 3s. */
 function withCapture<A extends unknown[], R extends { isError?: boolean }>(
   tool: string,
   handler: (...args: A) => Promise<R>
 ): (...args: A) => Promise<R> {
   return async (...args: A) => {
     const result = await handler(...args);
-    void captureToolCall(tool, !result.isError);
+    await captureToolCall(tool, !result.isError);
     return result;
   };
 }
