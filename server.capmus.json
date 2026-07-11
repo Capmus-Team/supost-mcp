@@ -1,0 +1,16 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.Capmus-Team/capmus-mcp",
+  "description": "Search listings, message posters, and create drafts on Capmus, the classifieds marketplace for university communities",
+  "repository": {
+    "url": "https://github.com/Capmus-Team/supost-mcp",
+    "source": "github"
+  },
+  "version": "0.2.2",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.capmus.com/mcp"
+    }
+  ]
+}
