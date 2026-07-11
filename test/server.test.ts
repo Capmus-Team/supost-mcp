@@ -14,7 +14,12 @@ async function connectedClient() {
   return client;
 }
 
+const NODE_ENV = process.env.NODE_ENV;
+
 afterEach(() => {
+  process.env.NODE_ENV = NODE_ENV;
+  delete process.env.TOOL_LOG_URL;
+  delete process.env.TOOL_LOG_KEY;
   vi.unstubAllGlobals();
 });
 
@@ -83,6 +88,56 @@ describe("MCP server", () => {
       next_cursor: null,
     });
     expect(result.isError).toBeFalsy();
+  });
+
+  it("captures sanitized PostHog props but logs full args to the DB RPC", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.TOOL_LOG_URL = "https://db.test.supabase.co";
+    process.env.TOOL_LOG_KEY = "srk";
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, body: String(init?.body ?? "") });
+      if (url.includes("/api/public/messages")) {
+        return new Response(
+          JSON.stringify({ status: "pending_verification", email: "buyer@example.com" }),
+          { status: 202, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("ok", { status: 200 });
+    });
+    const client = await connectedClient();
+    await client.callTool({
+      name: "send_message",
+      arguments: {
+        post_id: 42,
+        message: "Hi, is this still available?",
+        reply_to_email: "buyer@example.com",
+      },
+    });
+
+    const posthog = requests.find((r) => r.url.includes("posthog.com"));
+    expect(posthog).toBeDefined();
+    const props = JSON.parse(posthog!.body).properties;
+    expect(props).toMatchObject({
+      tool: "send_message",
+      ok: true,
+      post_id: 42,
+      message_chars: 28,
+    });
+    expect(JSON.stringify(props)).not.toContain("buyer@example.com");
+    expect(JSON.stringify(props)).not.toContain("still available");
+
+    const dbLog = requests.find((r) => r.url.includes("/rpc/log_mcp_tool_call"));
+    expect(dbLog).toBeDefined();
+    expect(JSON.parse(dbLog!.body)).toMatchObject({
+      p_tool: "send_message",
+      p_ok: true,
+      p_args: {
+        post_id: 42,
+        message: "Hi, is this still available?",
+        reply_to_email: "buyer@example.com",
+      },
+    });
   });
 
   it("upstream errors become isError tool results, not protocol failures", async () => {
