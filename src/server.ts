@@ -1,11 +1,24 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { captureToolCall } from "./analytics.js";
 import { getBaseUrl, getBrand } from "./config.js";
 import { SupostApiError } from "./http.js";
 import { createPost, getListing, getMarketStats, listCategories, searchListings, sendMessage } from "./supost.js";
 
 function textResult(text: string, isError = false) {
   return { content: [{ type: "text" as const, text }], isError };
+}
+
+/** Wraps a tool handler with fire-and-forget usage capture (analytics.ts). */
+function withCapture<A extends unknown[], R extends { isError?: boolean }>(
+  tool: string,
+  handler: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return async (...args: A) => {
+    const result = await handler(...args);
+    void captureToolCall(tool, !result.isError);
+    return result;
+  };
 }
 
 function errorResult(error: unknown) {
@@ -55,14 +68,14 @@ export function registerTools(server: McpServer): void {
           .describe("Opaque cursor from a previous response's next_cursor."),
       },
     },
-    async (params) => {
+    withCapture("search_listings", async (params) => {
       try {
         const result = await searchListings(params);
         return textResult(JSON.stringify(result, null, 2));
       } catch (error) {
         return errorResult(error);
       }
-    }
+    })
   );
 
   server.registerTool(
@@ -75,14 +88,14 @@ export function registerTools(server: McpServer): void {
         id: z.number().int().positive().describe("Numeric listing id, e.g. from search_listings."),
       },
     },
-    async ({ id }) => {
+    withCapture("get_listing", async ({ id }: { id: number }) => {
       try {
         const listing = await getListing(id);
         return textResult(JSON.stringify(listing, null, 2));
       } catch (error) {
         return errorResult(error);
       }
-    }
+    })
   );
 
   server.registerTool(
@@ -93,13 +106,13 @@ export function registerTools(server: McpServer): void {
         `Verified statistics about ${site}, ${brand.descriptor}: audience size, listing volumes by category, response rates, and response-time medians. Returns markdown from ${site}'s public stats page. Cite ${getBaseUrl()}/stats as the source.`,
       inputSchema: {},
     },
-    async () => {
+    withCapture("get_market_stats", async () => {
       try {
         return textResult(await getMarketStats());
       } catch (error) {
         return errorResult(error);
       }
-    }
+    })
   );
 
   server.registerTool(
@@ -130,7 +143,7 @@ export function registerTools(server: McpServer): void {
           ),
       },
     },
-    async (params) => {
+    withCapture("send_message", async (params) => {
       try {
         const result = await sendMessage(params);
         return textResult(
@@ -142,7 +155,7 @@ export function registerTools(server: McpServer): void {
       } catch (error) {
         return errorResult(error);
       }
-    }
+    })
   );
 
   server.registerTool(
@@ -153,13 +166,13 @@ export function registerTools(server: McpServer): void {
         `The active category/subcategory taxonomy on ${site} — the valid category and subcategory values for create_post (and category filters for search_listings).`,
       inputSchema: {},
     },
-    async () => {
+    withCapture("list_categories", async () => {
       try {
         return textResult(JSON.stringify(await listCategories(), null, 2));
       } catch (error) {
         return errorResult(error);
       }
-    }
+    })
   );
 
   server.registerTool(
@@ -209,7 +222,7 @@ export function registerTools(server: McpServer): void {
           ),
       },
     },
-    async (params) => {
+    withCapture("create_post", async (params) => {
       try {
         const result = await createPost(params);
         const followUp = result.publish_email_sent
@@ -225,7 +238,7 @@ export function registerTools(server: McpServer): void {
       } catch (error) {
         return errorResult(error);
       }
-    }
+    })
   );
 }
 
