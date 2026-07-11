@@ -14,6 +14,14 @@ const PRODUCT_LD = {
     "https://cdn.supost.com/posts/130088421/post_130088421b",
   ],
   offers: { "@type": "Offer", price: 1517, priceCurrency: "USD" },
+  additionalProperty: [
+    {
+      "@type": "PropertyValue",
+      name: "posterVerified",
+      value: true,
+      description: "Poster verified via @stanford.edu email",
+    },
+  ],
 };
 
 const PAGE = `<!DOCTYPE html><html><head>
@@ -57,7 +65,17 @@ describe("getListing", () => {
       category: "housing",
       url: PRODUCT_LD.url,
       photos: PRODUCT_LD.image,
+      stanford_verified: true,
     });
+  });
+
+  it("reports stanford_verified: false when the page carries no posterVerified property", async () => {
+    const unverified = { ...PRODUCT_LD };
+    delete (unverified as Record<string, unknown>).additionalProperty;
+    const page = `<script type="application/ld+json">${JSON.stringify(unverified)}</script>`;
+    const { fetchImpl } = fetchStub([htmlResponse(page)]);
+    const listing = await getListing(130088421, { fetchImpl });
+    expect(listing.stanford_verified).toBe(false);
   });
 
   it("returns photos: [] for a listing without images", async () => {

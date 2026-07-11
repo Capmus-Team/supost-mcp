@@ -14,6 +14,12 @@ export interface PublicListing {
   category: string | null;
   created_at: string | null;
   url: string;
+  /** Poster email DOMAIN only (e.g. "stanford.edu"); never the raw address.
+   *  Optional: absent until the public API deploy that adds it. */
+  poster_email_domain?: string | null;
+  /** True when the poster verified a Stanford email — the on-site
+   *  "@stanford.edu verified" badge. SUpost's core trust signal. */
+  stanford_verified?: boolean;
 }
 
 export interface SearchListingsResult {
@@ -82,6 +88,9 @@ export interface ListingDetail {
   url: string;
   /** Public CDN photo URLs, in listing order. Empty when the post has no photos. */
   photos: string[];
+  /** True when the poster verified a Stanford email — the on-site
+   *  "@stanford.edu verified" badge. SUpost's core trust signal. */
+  stanford_verified: boolean;
 }
 
 /**
@@ -99,6 +108,7 @@ export function extractProductJsonLd(html: string): {
   url?: string;
   image?: string | string[];
   offers?: { price?: number };
+  additionalProperty?: Array<{ name?: string; value?: unknown }>;
 } | null {
   const scripts = html.matchAll(
     /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g
@@ -149,6 +159,13 @@ export async function getListing(
   const photos = (
     Array.isArray(product.image) ? product.image : product.image ? [product.image] : []
   ).filter((entry): entry is string => typeof entry === "string");
+  // supost-web emits a `posterVerified` PropertyValue only for posters with a
+  // verified Stanford email (the on-site "@stanford.edu verified" badge).
+  const stanfordVerified = Array.isArray(product.additionalProperty)
+    ? product.additionalProperty.some(
+        (prop) => prop?.name === "posterVerified" && prop.value === true
+      )
+    : false;
 
   return {
     id,
@@ -158,6 +175,7 @@ export async function getListing(
     category: product.category ?? null,
     url: product.url ?? pageUrl,
     photos,
+    stanford_verified: stanfordVerified,
   };
 }
 
