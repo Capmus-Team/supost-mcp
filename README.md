@@ -102,6 +102,9 @@ single retry, structured failure).
       mcp-publisher login github   # device flow, needs a browser
       mcp-publisher publish        # from the repo root
       ```
+      For the Capmus entry, publish [server.capmus.json](server.capmus.json)
+      the same way (`cp server.capmus.json server.json` in a scratch checkout,
+      or `mcp-publisher publish --file server.capmus.json` if supported).
 - [x] **`/help/mcp` docs page in supost-web** — PR
       [#1242](https://github.com/Capmus-Team/supost-web/pull/1242) (guide
       registry entry + llms.txt MCP line); live once merged to dev → master.
