@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { SupostApiError } from "../src/http.js";
 import { sendMessage } from "../src/supost.js";
 import { fetchStub, jsonResponse, noSleep } from "./helpers.js";
@@ -54,6 +54,39 @@ describe("sendMessage", () => {
     await expect(
       sendMessage(PARAMS, { fetchImpl, sleep: noSleep })
     ).rejects.toBeInstanceOf(SupostApiError);
+  });
+
+  describe("trusted-agent API key", () => {
+    afterEach(() => {
+      delete process.env.SUPOST_API_KEY;
+    });
+
+    it("sends x-supost-api-key when SUPOST_API_KEY is set", async () => {
+      process.env.SUPOST_API_KEY = "test-key";
+      let headers: Record<string, string> | undefined;
+      const fetchImpl = async (
+        _url: string,
+        init?: { headers?: Record<string, string> }
+      ) => {
+        headers = init?.headers;
+        return jsonResponse(PENDING, 202);
+      };
+      await sendMessage(PARAMS, { fetchImpl, sleep: noSleep });
+      expect(headers?.["x-supost-api-key"]).toBe("test-key");
+    });
+
+    it("omits the header when the env is unset", async () => {
+      let headers: Record<string, string> | undefined;
+      const fetchImpl = async (
+        _url: string,
+        init?: { headers?: Record<string, string> }
+      ) => {
+        headers = init?.headers;
+        return jsonResponse(PENDING, 202);
+      };
+      await sendMessage(PARAMS, { fetchImpl, sleep: noSleep });
+      expect(headers?.["x-supost-api-key"]).toBeUndefined();
+    });
   });
 
   it("retries once on 429, resending the same POST body", async () => {

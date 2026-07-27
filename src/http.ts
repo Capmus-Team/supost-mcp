@@ -50,6 +50,8 @@ export interface FetchPublicInit {
   method?: "GET" | "POST";
   /** JSON-serialized request body; sets content-type: application/json. */
   body?: string;
+  /** Extra request headers (e.g. the trusted-agent API key). */
+  headers?: Record<string, string>;
 }
 
 export async function fetchPublic(
@@ -71,6 +73,7 @@ export async function fetchPublic(
       ...(init.body !== undefined
         ? { "content-type": "application/json" }
         : {}),
+      ...(init.headers ?? {}),
     },
     ...(init.body !== undefined ? { body: init.body } : {}),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
