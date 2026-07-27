@@ -221,10 +221,18 @@ export async function sendMessage(
   params: SendMessageParams,
   options: FetchPublicOptions = {}
 ): Promise<SendMessageResult> {
+  // Trusted-agent proof-of-origin (supost-web docs/dev/316): the public
+  // messages endpoint requires either a page token (browser flow) or this
+  // API key. Set SUPOST_API_KEY in the deployment env; never in git.
+  const apiKey = process.env.SUPOST_API_KEY?.trim();
   const response = await fetchPublic(
     `${getBaseUrl()}/api/public/messages`,
     options,
-    { method: "POST", body: JSON.stringify(params) }
+    {
+      method: "POST",
+      body: JSON.stringify(params),
+      ...(apiKey ? { headers: { "x-supost-api-key": apiKey } } : {}),
+    }
   );
   if (!response.ok) {
     await readJsonError(response);
