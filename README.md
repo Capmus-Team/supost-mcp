@@ -33,11 +33,42 @@ base URL.
 | `list_categories` | `GET /api/public/categories` | The active category/subcategory taxonomy — valid `create_post` values. |
 | `create_post` | `POST /api/public/posts` | Creates a DRAFT listing; returns a `continue_url` where the poster adds photos, reviews, and publishes (paying first when not on the free tier). Never publishes directly. |
 | `send_message` | `POST /api/public/messages` | Submits a message to a listing's poster. NOT delivered immediately: a confirmation link is emailed to `reply_to_email`, and the message only goes out after the human clicks it — agents must report it as pending confirmation, never sent. |
+| `check_message_status` | PostgREST RPC `get_guest_verification_status` (publishable key) | Whether the confirmation email for a `send_message` submission was delivered: `queued` / `sent` / `failed` (+ reason) / `unknown`. Never whether the link was clicked. |
 
 No personal information is ever returned. `send_message` is the supported
 way to contact a poster; the listing's `url` also carries the on-site
 message form. API terms:
 `https://supost.com/api/public/openapi.json`.
+
+## Bouncing addresses
+
+A message is only ever delivered after the human clicks the confirmation
+link, so an address the link cannot reach is a message that never arrives
+(supost-web `docs/dev/20260917-2040-guest-reply-bounce-feedback-handoff.md`).
+`send_message` therefore never answers a plain "pending" for a dead address:
+
+- An address whose confirmation email hard-bounced in the last 30 days is
+  refused by the API with `422 email_undeliverable` before anything is
+  stored. The tool returns an **error result** with
+  `{status: "email_undeliverable", reason, email, message}` and tells the
+  agent to ask for a different address rather than retry.
+- Otherwise the API answers `202` with a `status_key`, and the tool polls
+  the delivery status of the confirmation email for up to ~8 s (four checks,
+  two seconds apart — a suppressed address fails in under a second, a fresh
+  hard bounce in 1–16 s). A `failed` verdict is reported the same way as the
+  422; `sent` / `queued` come back in the result as `confirmation_email`,
+  with the `status_key` for a later `check_message_status`.
+
+The poll is the same anon-callable PostgREST RPC the web form uses,
+`get_guest_verification_status(status_key)`, reached with the marketplace's
+**publishable** key (the value every browser already gets). It returns only
+`queued | sent | failed` and a failure classification
+(`mailbox_unknown | no_mx | suppressed | other`) — never the redemption
+token, the message, or the address. Env: `SUPOST_STATUS_URL` /
+`SUPOST_STATUS_KEY` override the defaults (production project);
+`SUPOST_STATUS_KEY=""` disables polling (tools report `unknown`);
+`SUPOST_STATUS_POLL_ATTEMPTS` / `SUPOST_STATUS_POLL_INTERVAL_MS` tune the
+in-call wait.
 
 ## Hosting
 

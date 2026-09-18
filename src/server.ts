@@ -4,7 +4,20 @@ import { captureToolCall } from "./analytics.js";
 import { getBaseUrl, getBrand } from "./config.js";
 import { SupostApiError } from "./http.js";
 import { logToolCall } from "./toollog.js";
-import { createPost, getListing, getMarketStats, listCategories, searchListings, sendMessage } from "./supost.js";
+import {
+  createPost,
+  describeUndeliverable,
+  getListing,
+  getMarketStats,
+  getMessageDeliveryStatus,
+  listCategories,
+  parseDeliveryFailureReason,
+  searchListings,
+  sendMessage,
+  waitForMessageDelivery,
+  type MessageDelivery,
+  type MessageDeliveryFailureReason,
+} from "./supost.js";
 
 function textResult(text: string, isError = false) {
   return { content: [{ type: "text" as const, text }], isError };
@@ -31,6 +44,9 @@ const POSTHOG_PROPS: Record<
     post_id: a.post_id,
     message_chars: typeof a.message === "string" ? a.message.length : undefined,
   }),
+  // The status_key is an opaque handle, not PII, but it is also nothing
+  // PostHog needs — only that the poll happened.
+  check_message_status: () => ({}),
   create_post: (a) => ({
     category: a.category,
     subcategory: a.subcategory,
@@ -72,6 +88,52 @@ function errorResult(error: unknown) {
     `error: ${error instanceof Error ? error.message : String(error)}`,
     true
   );
+}
+
+const UNDELIVERABLE_NEXT_STEP =
+  "The message was NOT queued for delivery and will not be: the confirmation link cannot reach this address, so it can never be clicked. Do not resubmit the same address. Ask the user for a different, working email address and call send_message again with it.";
+
+/**
+ * The one outcome the confirmation loop cannot recover from: the address
+ * the user gave cannot receive the confirmation link. Reported as an error
+ * result with a structured body so the agent tells the user the truth
+ * instead of "check your inbox" (supost-web docs/dev/20260917-2040).
+ */
+function undeliverableResult(
+  email: string,
+  reason: MessageDeliveryFailureReason,
+  statusKey: string | null
+) {
+  return textResult(
+    JSON.stringify(
+      {
+        status: "email_undeliverable",
+        reason,
+        email,
+        status_key: statusKey,
+        message: describeUndeliverable(email, reason),
+      },
+      null,
+      2
+    ) +
+      "\n\n" +
+      UNDELIVERABLE_NEXT_STEP,
+    true
+  );
+}
+
+function deliveryNote(delivery: MessageDelivery | null, email: string, statusKey: string | null): string {
+  switch (delivery?.status) {
+    case "sent":
+      return `The confirmation email was accepted by the mail server for ${email}. The message reaches the poster only after the user clicks the link in it — tell them to check their inbox (and spam folder) and confirm.`;
+    case "queued":
+      return `The confirmation email to ${email} is still being delivered. Tell the user to check their inbox (and spam folder) and click the link; the message reaches the poster only after that click.` +
+        (statusKey
+          ? ` If they have not received it within a minute or two, call check_message_status with status_key ${statusKey} — a bounced address is reported there.`
+          : "");
+    default:
+      return `A confirmation link was emailed to ${email}. The message reaches the poster only after the user clicks that link — tell them to check their inbox (and spam folder) and confirm.`;
+  }
 }
 
 /** Registers the E3 tools on a server instance (doc 190 E3). */
@@ -163,7 +225,7 @@ export function registerTools(server: McpServer): void {
     {
       title: `Message a ${site} poster`,
       description:
-        `Send a message to the poster of an active ${site} listing. IMPORTANT: the message is NOT delivered immediately — ${site} emails a confirmation link to reply_to_email, and the message is only delivered to the poster after the human clicks that link. Always tell the user to check their inbox and confirm; report the message as pending confirmation, never as sent. The poster's reply goes to reply_to_email.`,
+        `Send a message to the poster of an active ${site} listing. IMPORTANT: the message is NOT delivered immediately — ${site} emails a confirmation link to reply_to_email, and the message is only delivered to the poster after the human clicks that link. Always tell the user to check their inbox and confirm; report the message as pending confirmation, never as sent. The poster's reply goes to reply_to_email. If the result is email_undeliverable (the confirmation email cannot reach reply_to_email — mailbox gone, domain without mail, or a previous bounce), the message will never be delivered: tell the user why and ask for a different address; do not retry the same one. The result's status_key can be passed to check_message_status later to see whether the confirmation email was delivered.`,
       inputSchema: {
         post_id: z
           .number()
@@ -189,11 +251,83 @@ export function registerTools(server: McpServer): void {
     withCapture("send_message", async (params) => {
       try {
         const result = await sendMessage(params);
+        // Wait briefly for Mailgun's verdict on the confirmation email so a
+        // dead address is reported inside this call, the way the web form
+        // shows it on the same screen (~8 s worst case; a suppressed
+        // address fails in under a second).
+        const delivery = result.status_key
+          ? await waitForMessageDelivery(result.status_key)
+          : null;
+        if (delivery?.status === "failed") {
+          return undeliverableResult(
+            params.reply_to_email,
+            delivery.reason ?? "other",
+            result.status_key
+          );
+        }
         return textResult(
-          JSON.stringify(result, null, 2) +
-            "\n\nThe message is pending: a confirmation link was emailed to " +
-            params.reply_to_email +
-            ". It will only be delivered to the poster after that link is clicked."
+          JSON.stringify(
+            {
+              ...result,
+              confirmation_email: delivery?.status ?? "unknown",
+            },
+            null,
+            2
+          ) +
+            "\n\nThe message is pending confirmation, not sent. " +
+            deliveryNote(delivery, params.reply_to_email, result.status_key)
+        );
+      } catch (error) {
+        if (error instanceof SupostApiError && error.code === "email_undeliverable") {
+          return undeliverableResult(
+            typeof error.details.email === "string"
+              ? error.details.email
+              : params.reply_to_email,
+            parseDeliveryFailureReason(error.details.reason),
+            null
+          );
+        }
+        return errorResult(error);
+      }
+    })
+  );
+
+  server.registerTool(
+    "check_message_status",
+    {
+      title: "Check a message's confirmation email",
+      description:
+        `Delivery status of the confirmation email for a message submitted with send_message, by the status_key it returned. Use it when the user says they have not received the confirmation email. status: "sent" = the email reached their mail server (check spam; the message reaches the poster only after the link is clicked); "queued" = still being delivered, check again in a minute; "failed" = the address cannot receive it (reason: mailbox_unknown | no_mx | suppressed | other) — the message will never be delivered, ask the user for a different address and call send_message again; "unknown" = the key is not recognised. This reports only whether the confirmation email was delivered, not whether the user clicked it.`,
+      inputSchema: {
+        status_key: z
+          .string()
+          .trim()
+          .uuid()
+          .describe("The status_key from a send_message result."),
+      },
+    },
+    withCapture("check_message_status", async ({ status_key }) => {
+      try {
+        const delivery = await getMessageDeliveryStatus(status_key);
+        const detail = (() => {
+          switch (delivery.status) {
+            case "sent":
+              return "The confirmation email was accepted by the recipient's mail server. If the user cannot find it, have them check spam. The message reaches the poster only after the link in it is clicked.";
+            case "queued":
+              return "The confirmation email is still being delivered. Check again in a minute.";
+            case "failed":
+              return `The confirmation email could not be delivered (${delivery.reason ?? "other"}). ` + UNDELIVERABLE_NEXT_STEP;
+            default:
+              return "No delivery status is known for this key: it may be mistyped, expired, or from a submission made before status tracking existed. The user should check their inbox and spam folder for the confirmation email.";
+          }
+        })();
+        return textResult(
+          JSON.stringify(
+            { status_key, status: delivery.status, reason: delivery.reason, detail },
+            null,
+            2
+          ),
+          delivery.status === "failed"
         );
       } catch (error) {
         return errorResult(error);
@@ -286,7 +420,7 @@ export function registerTools(server: McpServer): void {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: getBrand().key, version: "0.2.2" });
+  const server = new McpServer({ name: getBrand().key, version: "0.3.0" });
   registerTools(server);
   return server;
 }

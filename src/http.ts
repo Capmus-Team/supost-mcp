@@ -20,7 +20,10 @@ export class SupostApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly code: string
+    public readonly code: string,
+    /** Extra structured fields from the API's error body (e.g. the
+     *  `reason` and `email` of a 422 `email_undeliverable`). */
+    public readonly details: Record<string, unknown> = {}
   ) {
     super(message);
     this.name = "SupostApiError";
@@ -30,7 +33,7 @@ export class SupostApiError extends Error {
 const MAX_RETRY_AFTER_MS = 5_000;
 const DEFAULT_RETRY_AFTER_MS = 2_000;
 const REQUEST_TIMEOUT_MS = 15_000;
-const USER_AGENT = "supost-mcp/0.2 (+https://github.com/capmus-team/supost-mcp)";
+const USER_AGENT = "supost-mcp/0.3 (+https://github.com/capmus-team/supost-mcp)";
 
 function retryDelayMs(response: Response): number {
   const header = response.headers.get("retry-after");
