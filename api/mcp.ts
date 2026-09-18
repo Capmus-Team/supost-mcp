@@ -12,7 +12,7 @@ const handler = createMcpHandler(
     registerTools(server);
   },
   {
-    serverInfo: { name: getBrand().key, version: "0.2.2" },
+    serverInfo: { name: getBrand().key, version: "0.3.0" },
   },
   {
     basePath: "/api",

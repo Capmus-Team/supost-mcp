@@ -39,7 +39,7 @@ describe("brand config", () => {
   it("capmus tool descriptions carry Capmus branding, not SUpost", async () => {
     process.env.BRAND = "capmus";
     const tools = await listTools();
-    expect(tools.length).toBe(6);
+    expect(tools.length).toBe(7);
     for (const tool of tools) {
       expect(tool.description).not.toContain("SUpost");
       expect(tool.description).not.toContain("Stanford,");

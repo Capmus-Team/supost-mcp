@@ -1,4 +1,4 @@
-import { getBaseUrl } from "./config.js";
+import { getBaseUrl, getStatusPoll, getStatusRpc } from "./config.js";
 import { fetchPublic, SupostApiError, type FetchPublicOptions } from "./http.js";
 
 /**
@@ -39,14 +39,18 @@ export interface SearchListingsParams {
 async function readJsonError(response: Response): Promise<never> {
   let code = "http_error";
   let message = `SUpost API returned HTTP ${response.status}.`;
+  const details: Record<string, unknown> = {};
   try {
-    const body = (await response.json()) as { error?: string; message?: string };
+    const body = (await response.json()) as Record<string, unknown>;
     if (typeof body.error === "string") code = body.error;
     if (typeof body.message === "string") message = body.message;
+    for (const [key, value] of Object.entries(body)) {
+      if (key !== "error" && key !== "message") details[key] = value;
+    }
   } catch {
     // non-JSON error body; keep the generic message
   }
-  throw new SupostApiError(message, response.status, code);
+  throw new SupostApiError(message, response.status, code, details);
 }
 
 export function buildSearchUrl(params: SearchListingsParams, baseUrl = getBaseUrl()): string {
@@ -207,6 +211,11 @@ export interface SendMessageParams {
 export interface SendMessageResult {
   status: "pending_verification";
   email: string;
+  /** Handle for polling whether the confirmation email was delivered
+   *  (`getMessageDeliveryStatus`). Not the redemption token: redeems
+   *  nothing. Null when the API could not report a status for this
+   *  submission (or on responses from before 2026-09-17). */
+  status_key: string | null;
   detail?: string;
 }
 
@@ -216,6 +225,10 @@ export interface SendMessageResult {
  * a confirmation link to `reply_to_email`, and the message is only created
  * and delivered after the human clicks it. Report the result as "pending
  * confirmation", never as "sent".
+ *
+ * An address whose confirmation email recently hard-bounced is refused by
+ * the API with a 422 `email_undeliverable` before anything is stored; that
+ * surfaces here as a SupostApiError with `details.reason` / `details.email`.
  */
 export async function sendMessage(
   params: SendMessageParams,
@@ -237,15 +250,156 @@ export async function sendMessage(
   if (!response.ok) {
     await readJsonError(response);
   }
-  const body = (await response.json()) as SendMessageResult;
-  if (body.status !== "pending_verification") {
+  const body = (await response.json()) as Partial<SendMessageResult>;
+  if (body.status !== "pending_verification" || typeof body.email !== "string") {
     throw new SupostApiError(
       "Unexpected response shape from SUpost messages API.",
       502,
       "bad_upstream_response"
     );
   }
-  return body;
+  return {
+    status: "pending_verification",
+    email: body.email,
+    status_key: typeof body.status_key === "string" ? body.status_key : null,
+    ...(typeof body.detail === "string" ? { detail: body.detail } : {}),
+  };
+}
+
+/** Delivery status of the confirmation-link email, as the marketplace
+ *  stores it. `unknown`: the key is not recognised (expired, mistyped, or
+ *  minted before status tracking) or polling is not configured. */
+export type MessageDeliveryStatus = "queued" | "sent" | "failed" | "unknown";
+
+/** Why the confirmation email could not be delivered (classified
+ *  server-side; the raw SMTP text never leaves the marketplace). */
+export type MessageDeliveryFailureReason =
+  | "mailbox_unknown"
+  | "no_mx"
+  | "suppressed"
+  | "other";
+
+export interface MessageDelivery {
+  status: MessageDeliveryStatus;
+  /** Set only alongside `failed`. */
+  reason: MessageDeliveryFailureReason | null;
+}
+
+const FAILURE_REASONS: readonly MessageDeliveryFailureReason[] = [
+  "mailbox_unknown",
+  "no_mx",
+  "suppressed",
+  "other",
+];
+
+export function parseDeliveryFailureReason(value: unknown): MessageDeliveryFailureReason {
+  return typeof value === "string" &&
+    (FAILURE_REASONS as readonly string[]).includes(value)
+    ? (value as MessageDeliveryFailureReason)
+    : "other";
+}
+
+const STATUS_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isStatusKey(value: unknown): value is string {
+  return typeof value === "string" && STATUS_KEY_RE.test(value);
+}
+
+/**
+ * One poll of the confirmation email's delivery status: the anon-callable
+ * PostgREST RPC `get_guest_verification_status(status_key)` (supost-web
+ * migration 20260917213000), reached directly with the publishable key the
+ * way the web form does — the marketplace deliberately has no poll route.
+ * Returns `unknown` for an unrecognised key or when polling is disabled;
+ * throws SupostApiError only on an HTTP failure.
+ */
+export async function getMessageDeliveryStatus(
+  statusKey: string,
+  options: FetchPublicOptions = {}
+): Promise<MessageDelivery> {
+  const rpc = getStatusRpc();
+  if (!rpc || !isStatusKey(statusKey)) return { status: "unknown", reason: null };
+  const response = await fetchPublic(
+    `${rpc.url}/rest/v1/rpc/get_guest_verification_status`,
+    options,
+    {
+      method: "POST",
+      body: JSON.stringify({ p_status_key: statusKey }),
+      headers: { apikey: rpc.key, authorization: `Bearer ${rpc.key}` },
+    }
+  );
+  if (!response.ok) {
+    throw new SupostApiError(
+      `Delivery status lookup returned HTTP ${response.status}.`,
+      response.status,
+      "status_unavailable"
+    );
+  }
+  const body = (await response.json()) as unknown;
+  const row = (Array.isArray(body) ? body[0] : body) as
+    | { status?: unknown; reason?: unknown }
+    | null
+    | undefined;
+  const status = row?.status;
+  if (status === "sent" || status === "queued") return { status, reason: null };
+  if (status === "failed") {
+    return { status: "failed", reason: parseDeliveryFailureReason(row?.reason) };
+  }
+  return { status: "unknown", reason: null };
+}
+
+/**
+ * Polls `getMessageDeliveryStatus` up to `attempts` times, `intervalMs`
+ * apart (first check after one interval — a suppressed address fails at
+ * Mailgun in under a second, so it usually already has the answer), and
+ * stops early on `sent` / `failed`. A lookup error counts as "still queued",
+ * exactly like the web form: the send itself already succeeded.
+ */
+export async function waitForMessageDelivery(
+  statusKey: string,
+  options: FetchPublicOptions = {},
+  poll: { attempts: number; intervalMs: number } = getStatusPoll()
+): Promise<MessageDelivery> {
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  let last: MessageDelivery = { status: "queued", reason: null };
+  for (let i = 0; i < poll.attempts; i += 1) {
+    await sleep(poll.intervalMs);
+    try {
+      last = await getMessageDeliveryStatus(statusKey, options);
+    } catch {
+      continue;
+    }
+    if (last.status !== "queued") return last;
+  }
+  return last;
+}
+
+/**
+ * Agent-facing wording for an address the confirmation email cannot reach.
+ * Mirrors the marketplace's own copy (factual, then the fix); the address is
+ * the one the caller submitted, so the agent can quote it back to the user.
+ */
+export function describeUndeliverable(
+  email: string,
+  reason: MessageDeliveryFailureReason
+): string {
+  const stanford = /@(?:[a-z0-9-]+\.)*stanford\.edu$/i.test(email);
+  const alt = stanford
+    ? "If they have graduated or left Stanford, use their alumni or personal address."
+    : "Check the spelling, or use another address.";
+  switch (reason) {
+    case "mailbox_unknown":
+      return stanford
+        ? `Stanford's mail server says ${email} doesn't exist. ${alt}`
+        : `The mail server for ${email} says that mailbox doesn't exist. ${alt}`;
+    case "no_mx":
+      return `${email} can't receive mail: its domain has no mail server. Check the spelling of the address.`;
+    case "suppressed":
+    case "other":
+    default:
+      return `Email to ${email} isn't being delivered. ${alt}`;
+  }
 }
 
 export interface PublicCategory {
