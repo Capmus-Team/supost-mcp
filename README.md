@@ -160,10 +160,17 @@ The public API enforces ~60 requests/minute/IP and serves 5-minute CDN
 caching. The client in [src/http.ts](src/http.ts) respects this: on a 429 it
 honors `Retry-After` (capped at 5 s), retries **once**, and otherwise
 surfaces a structured `rate_limited` error instructing the agent to back off
-— it never retries in a loop. All requests carry a `supost-mcp/…` User-Agent
-and, when the calling agent's IP is known, an `X-Forwarded-For` with it
-(first hop only), so the marketplace's per-IP limit applies per agent rather
-than to the single Vercel egress IP all agents would otherwise share.
+— it never retries in a loop. All requests carry a `supost-mcp/…` User-Agent.
+
+Every marketplace call (never the status RPC) also carries the trusted-agent
+headers: `x-supost-api-key` (`SUPOST_API_KEY` in the deployment env, never in
+git) and, when the calling agent's IP is known, `x-supost-agent-client-ip`
+with it (first hop of the MCP's own inbound `x-forwarded-for`). The API
+trusts that IP only when the key verifies (supost-web
+`docs/dev/469-mcp-agent-api-hardening-handoff.md`), so the per-IP limit can
+apply per agent rather than to the single Vercel egress IP all agents share.
+Plain `X-Forwarded-For` would not work: supost.com runs on Vercel, which
+overwrites it at the edge.
 
 ## Development
 

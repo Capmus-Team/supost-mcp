@@ -23,6 +23,7 @@ afterEach(() => {
   delete process.env.TOOL_LOG_KEY;
   delete process.env.SUPOST_STATUS_POLL_INTERVAL_MS;
   delete process.env.SUPOST_STATUS_POLL_ATTEMPTS;
+  delete process.env.SUPOST_API_KEY;
   vi.unstubAllGlobals();
 });
 
@@ -368,6 +369,7 @@ describe("MCP server", () => {
 
   it("keys the PostHog event on the hashed caller identity from the HTTP headers", async () => {
     process.env.NODE_ENV = "production";
+    process.env.SUPOST_API_KEY = "test-key";
     const requests: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       requests.push({
@@ -424,10 +426,13 @@ describe("MCP server", () => {
     });
     expect(posthog!.body).not.toContain("203.0.113.7");
 
-    // The upstream call carries the agent's IP (first hop only), so the
-    // marketplace's per-IP limiter sees the agent, not Vercel's egress IP.
+    // The upstream call carries the agent's IP (first hop only) in the
+    // dedicated header the API trusts alongside the key, so the
+    // marketplace's per-IP limiter can see the agent, not Vercel's egress IP.
     const upstream = requests.find((r) => r.url.includes("/api/public/categories"));
-    expect(upstream?.headers["x-forwarded-for"]).toBe("203.0.113.7");
+    expect(upstream?.headers["x-supost-agent-client-ip"]).toBe("203.0.113.7");
+    expect(upstream?.headers["x-supost-api-key"]).toBe("test-key");
+    expect(upstream?.headers).not.toHaveProperty("x-forwarded-for");
   });
 
   it("falls back to the per-brand distinct_id when no HTTP headers are available", async () => {
@@ -452,6 +457,7 @@ describe("MCP server", () => {
     expect(body.distinct_id).toBe("mcp.supost.com");
     expect(body.properties.client_id).toBeNull();
     const upstream = requests.find((r) => r.url.includes("/api/public/categories"));
+    expect(upstream?.headers).not.toHaveProperty("x-supost-agent-client-ip");
     expect(upstream?.headers).not.toHaveProperty("x-forwarded-for");
   });
 
