@@ -11,6 +11,7 @@
  * POSTHOG_KEY="" to disable capture entirely.
  */
 
+import type { ClientIdentity } from "./client.js";
 import { getBrand } from "./config.js";
 
 const DEFAULT_KEY = "phc_yPfYnnQ3nCB5SVhYagYQeZfMYgbsaMXZLgHcL27rDEDR";
@@ -23,14 +24,17 @@ function captureKey(): string | null {
 }
 
 /**
- * Never throws, never blocks the tool response. A fixed per-brand
- * distinct_id ("mcp.supost.com") keeps this from minting a PostHog person
- * per request.
+ * Never throws, never blocks the tool response. The distinct_id is the
+ * caller's hashed identity (client.ts) so `uniq(distinct_id)` counts
+ * agents; without one it falls back to the per-brand "mcp.supost.com".
+ * `$process_person_profile: false` keeps either from minting a PostHog
+ * person per caller.
  */
 export function captureToolCall(
   tool: string,
   ok: boolean,
-  props: Record<string, unknown> = {}
+  props: Record<string, unknown> = {},
+  client: ClientIdentity | null = null
 ): Promise<void> {
   const key = captureKey();
   if (!key) return Promise.resolve();
@@ -41,13 +45,16 @@ export function captureToolCall(
     body: JSON.stringify({
       api_key: key,
       event: "mcp_tool_called",
-      distinct_id: `mcp.${brand}.com`,
+      distinct_id: client?.client_id ?? `mcp.${brand}.com`,
       properties: {
         ...props,
         tool,
         brand,
         ok,
-        // Server-side event for a shared identity — never create a person.
+        client_id: client?.client_id ?? null,
+        client_ua: client?.client_ua ?? null,
+        client_country: client?.client_country ?? null,
+        // Server-side event for a hashed identity — never create a person.
         $process_person_profile: false,
       },
     }),

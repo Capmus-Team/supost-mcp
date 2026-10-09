@@ -94,6 +94,27 @@ Optional env var: `SUPOST_BASE_URL` (default `https://supost.com`; set to
 `https://preview.supost.com` on preview deployments to point at the dev
 stack).
 
+Production deploys come from the GitHub integration on `master`. Avoid
+`vercel deploy --prod` from a local checkout unless it is at `origin/master`:
+a stale CLI deploy takes the production alias over the git build (this
+happened on 2026-09-17; fixed with `vercel promote`).
+
+### Usage analytics
+
+Every tool call emits one PostHog `mcp_tool_called` event (sanitized args,
+no PII — see [src/analytics.ts](src/analytics.ts)) and, when `TOOL_LOG_URL`
+/ `TOOL_LOG_KEY` are set, a full-argument row in the marketplace's private
+`ops.mcp_tool_call` table ([src/toollog.ts](src/toollog.ts)).
+
+The PostHog `distinct_id` is a salted SHA-256 of the caller's IP +
+User-Agent ([src/client.ts](src/client.ts)), so `uniq(distinct_id)` counts
+distinct agents without storing the IP. Events also carry `client_ua`
+(the MCP client's User-Agent, which names the harness) and `client_country`
+(Vercel's geo header). Set `CLIENT_ID_SALT` in the Vercel project env to
+make the hash unguessable; the in-repo default keeps local dev working.
+Calls that arrive without IP or User-Agent fall back to the per-brand id
+`mcp.<brand>.com`.
+
 ### Connect a client
 
 ```sh

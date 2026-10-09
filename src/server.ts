@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { captureToolCall } from "./analytics.js";
+import { identifyClient, type HeaderBag } from "./client.js";
 import { getBaseUrl, getBrand } from "./config.js";
 import { SupostApiError } from "./http.js";
 import { logToolCall } from "./toollog.js";
@@ -57,10 +58,26 @@ const POSTHOG_PROPS: Record<
   }),
 };
 
+/** The SDK passes `extra` (RequestHandlerExtra) after the tool args; its
+ *  `requestInfo.headers` are the HTTP headers of the POST that carried the
+ *  call. Absent on non-HTTP transports (tests). */
+function requestHeaders(args: unknown[]): HeaderBag | undefined {
+  for (const arg of args) {
+    if (arg !== null && typeof arg === "object" && "requestInfo" in arg) {
+      const info = (arg as { requestInfo?: { headers?: unknown } }).requestInfo;
+      if (info?.headers && typeof info.headers === "object") {
+        return info.headers as HeaderBag;
+      }
+    }
+  }
+  return undefined;
+}
+
 /** Wraps a tool handler with usage capture: sanitized PostHog event
- *  (analytics.ts) + full-args DB log (toollog.ts). Awaited — a dangling
- *  promise would be frozen when the serverless function returns — but both
- *  sinks never throw and self-limit to 3s. */
+ *  (analytics.ts, keyed by the caller's hashed identity) + full-args DB log
+ *  (toollog.ts). Awaited — a dangling promise would be frozen when the
+ *  serverless function returns — but both sinks never throw and self-limit
+ *  to 3s. */
 function withCapture<
   A extends unknown[],
   R extends { isError?: boolean; content: Array<{ type: "text"; text: string }> },
@@ -73,7 +90,12 @@ function withCapture<
         ? (args[0] as Record<string, unknown>)
         : {};
     await Promise.all([
-      captureToolCall(tool, ok, POSTHOG_PROPS[tool]?.(toolArgs) ?? {}),
+      captureToolCall(
+        tool,
+        ok,
+        POSTHOG_PROPS[tool]?.(toolArgs) ?? {},
+        identifyClient(requestHeaders(args))
+      ),
       logToolCall(tool, ok, toolArgs, ok ? null : (result.content[0]?.text ?? null)),
     ]);
     return result;
