@@ -1,10 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { captureToolCall } from "./analytics.js";
-import { identifyClient, type HeaderBag } from "./client.js";
+import { clientIp, identifyClient, type HeaderBag } from "./client.js";
 import { getBaseUrl, getBrand } from "./config.js";
 import { SupostApiError } from "./http.js";
 import { logToolCall } from "./toollog.js";
+import { serverVersion } from "./version.js";
 import {
   createPost,
   describeUndeliverable,
@@ -20,9 +21,25 @@ import {
   type MessageDeliveryFailureReason,
 } from "./supost.js";
 
-function textResult(text: string, isError = false) {
+/** Tool result plus an analytics-only classification of a failure. The
+ *  `error_code` never reaches the client: withCapture strips it after
+ *  recording it on the PostHog event. */
+type ToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+  error_code?: string;
+};
+
+function textResult(text: string, isError = false): ToolResult {
   return { content: [{ type: "text" as const, text }], isError };
 }
+
+/** Per-call context handed to tool handlers (from the HTTP request that
+ *  carried the call; empty on non-HTTP transports such as tests). */
+type ToolContext = {
+  /** The calling agent's IP, forwarded upstream as X-Forwarded-For. */
+  clientIp: string | null;
+};
 
 /** Sanitized argument subset for the PostHog event — the "what are users
  *  asking for" signal (search queries, filters, ids) WITHOUT PII: never
@@ -61,55 +78,57 @@ const POSTHOG_PROPS: Record<
 /** The SDK passes `extra` (RequestHandlerExtra) after the tool args; its
  *  `requestInfo.headers` are the HTTP headers of the POST that carried the
  *  call. Absent on non-HTTP transports (tests). */
-function requestHeaders(args: unknown[]): HeaderBag | undefined {
-  for (const arg of args) {
-    if (arg !== null && typeof arg === "object" && "requestInfo" in arg) {
-      const info = (arg as { requestInfo?: { headers?: unknown } }).requestInfo;
-      if (info?.headers && typeof info.headers === "object") {
-        return info.headers as HeaderBag;
-      }
+function requestHeaders(extra: unknown): HeaderBag | undefined {
+  if (extra !== null && typeof extra === "object" && "requestInfo" in extra) {
+    const info = (extra as { requestInfo?: { headers?: unknown } }).requestInfo;
+    if (info?.headers && typeof info.headers === "object") {
+      return info.headers as HeaderBag;
     }
   }
   return undefined;
 }
 
-/** Wraps a tool handler with usage capture: sanitized PostHog event
- *  (analytics.ts, keyed by the caller's hashed identity) + full-args DB log
- *  (toollog.ts). Awaited — a dangling promise would be frozen when the
- *  serverless function returns — but both sinks never throw and self-limit
- *  to 3s. */
-function withCapture<
-  A extends unknown[],
-  R extends { isError?: boolean; content: Array<{ type: "text"; text: string }> },
->(tool: string, handler: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
-  return async (...args: A) => {
-    const result = await handler(...args);
+/** Wraps a tool handler with per-call context (the caller's IP for upstream
+ *  X-Forwarded-For) and usage capture: sanitized PostHog event
+ *  (analytics.ts, keyed by the caller's hashed identity, with the failure's
+ *  `error_code`) + full-args DB log (toollog.ts). Awaited — a dangling
+ *  promise would be frozen when the serverless function returns — but both
+ *  sinks never throw and self-limit to 3s. */
+function withCapture<P, R extends ToolResult>(
+  tool: string,
+  handler: (params: P, ctx: ToolContext) => Promise<R>
+): (params: P, extra?: unknown) => Promise<R> {
+  return async (params: P, extra?: unknown) => {
+    const headers = requestHeaders(extra);
+    const ctx: ToolContext = { clientIp: headers ? clientIp(headers) : null };
+    const { error_code, ...result } = await handler(params, ctx);
     const ok = !result.isError;
     const toolArgs =
-      args[0] !== null && typeof args[0] === "object" && !Array.isArray(args[0])
-        ? (args[0] as Record<string, unknown>)
+      params !== null && typeof params === "object" && !Array.isArray(params)
+        ? (params as Record<string, unknown>)
         : {};
     await Promise.all([
       captureToolCall(
         tool,
         ok,
         POSTHOG_PROPS[tool]?.(toolArgs) ?? {},
-        identifyClient(requestHeaders(args))
+        identifyClient(headers),
+        ok ? null : (error_code ?? "unknown")
       ),
       logToolCall(tool, ok, toolArgs, ok ? null : (result.content[0]?.text ?? null)),
     ]);
-    return result;
+    return result as R;
   };
 }
 
-function errorResult(error: unknown) {
+function errorResult(error: unknown): ToolResult {
   if (error instanceof SupostApiError) {
-    return textResult(`${error.code}: ${error.message}`, true);
+    return { ...textResult(`${error.code}: ${error.message}`, true), error_code: error.code };
   }
-  return textResult(
-    `error: ${error instanceof Error ? error.message : String(error)}`,
-    true
-  );
+  return {
+    ...textResult(`error: ${error instanceof Error ? error.message : String(error)}`, true),
+    error_code: "unknown",
+  };
 }
 
 const UNDELIVERABLE_NEXT_STEP =
@@ -125,8 +144,8 @@ function undeliverableResult(
   email: string,
   reason: MessageDeliveryFailureReason,
   statusKey: string | null
-) {
-  return textResult(
+): ToolResult {
+  const result = textResult(
     JSON.stringify(
       {
         status: "email_undeliverable",
@@ -142,6 +161,7 @@ function undeliverableResult(
       UNDELIVERABLE_NEXT_STEP,
     true
   );
+  return { ...result, error_code: "email_undeliverable" };
 }
 
 function deliveryNote(delivery: MessageDelivery | null, email: string, statusKey: string | null): string {
@@ -195,9 +215,9 @@ export function registerTools(server: McpServer): void {
           .describe("Opaque cursor from a previous response's next_cursor."),
       },
     },
-    withCapture("search_listings", async (params) => {
+    withCapture("search_listings", async (params, ctx) => {
       try {
-        const result = await searchListings(params);
+        const result = await searchListings(params, ctx);
         return textResult(JSON.stringify(result, null, 2));
       } catch (error) {
         return errorResult(error);
@@ -215,9 +235,9 @@ export function registerTools(server: McpServer): void {
         id: z.number().int().positive().describe("Numeric listing id, e.g. from search_listings."),
       },
     },
-    withCapture("get_listing", async ({ id }: { id: number }) => {
+    withCapture("get_listing", async ({ id }: { id: number }, ctx) => {
       try {
-        const listing = await getListing(id);
+        const listing = await getListing(id, ctx);
         return textResult(JSON.stringify(listing, null, 2));
       } catch (error) {
         return errorResult(error);
@@ -233,9 +253,9 @@ export function registerTools(server: McpServer): void {
         `Verified statistics about ${site}, ${brand.descriptor}: audience size, listing volumes by category, response rates, and response-time medians. Returns markdown from ${site}'s public stats page. Cite ${getBaseUrl()}/stats as the source.`,
       inputSchema: {},
     },
-    withCapture("get_market_stats", async () => {
+    withCapture("get_market_stats", async (_params, ctx) => {
       try {
-        return textResult(await getMarketStats());
+        return textResult(await getMarketStats(ctx));
       } catch (error) {
         return errorResult(error);
       }
@@ -270,9 +290,9 @@ export function registerTools(server: McpServer): void {
           ),
       },
     },
-    withCapture("send_message", async (params) => {
+    withCapture("send_message", async (params, ctx) => {
       try {
-        const result = await sendMessage(params);
+        const result = await sendMessage(params, ctx);
         // Wait briefly for Mailgun's verdict on the confirmation email so a
         // dead address is reported inside this call, the way the web form
         // shows it on the same screen (~8 s worst case; a suppressed
@@ -343,14 +363,18 @@ export function registerTools(server: McpServer): void {
               return "No delivery status is known for this key: it may be mistyped, expired, or from a submission made before status tracking existed. The user should check their inbox and spam folder for the confirmation email.";
           }
         })();
-        return textResult(
-          JSON.stringify(
-            { status_key, status: delivery.status, reason: delivery.reason, detail },
-            null,
-            2
+        const failed = delivery.status === "failed";
+        return {
+          ...textResult(
+            JSON.stringify(
+              { status_key, status: delivery.status, reason: delivery.reason, detail },
+              null,
+              2
+            ),
+            failed
           ),
-          delivery.status === "failed"
-        );
+          ...(failed ? { error_code: "email_undeliverable" } : {}),
+        };
       } catch (error) {
         return errorResult(error);
       }
@@ -365,9 +389,9 @@ export function registerTools(server: McpServer): void {
         `The active category/subcategory taxonomy on ${site} — the valid category and subcategory values for create_post (and category filters for search_listings).`,
       inputSchema: {},
     },
-    withCapture("list_categories", async () => {
+    withCapture("list_categories", async (_params, ctx) => {
       try {
-        return textResult(JSON.stringify(await listCategories(), null, 2));
+        return textResult(JSON.stringify(await listCategories(ctx), null, 2));
       } catch (error) {
         return errorResult(error);
       }
@@ -421,9 +445,9 @@ export function registerTools(server: McpServer): void {
           ),
       },
     },
-    withCapture("create_post", async (params) => {
+    withCapture("create_post", async (params, ctx) => {
       try {
-        const result = await createPost(params);
+        const result = await createPost(params, ctx);
         const followUp = result.publish_email_sent
           ? "\n\nA one-click publish link was emailed to " +
             params.email +
@@ -442,7 +466,7 @@ export function registerTools(server: McpServer): void {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: getBrand().key, version: "0.3.0" });
+  const server = new McpServer({ name: getBrand().key, version: serverVersion() });
   registerTools(server);
   return server;
 }

@@ -47,6 +47,11 @@ function retryDelayMs(response: Response): number {
 export interface FetchPublicOptions {
   fetchImpl?: FetchLike;
   sleep?: (ms: number) => Promise<void>;
+  /** The calling agent's IP, forwarded upstream as X-Forwarded-For so the
+   *  marketplace's per-IP limiter (and its logs) see the agent rather than
+   *  the one Vercel egress IP every agent would otherwise share. Omitted
+   *  from the request when unknown. */
+  clientIp?: string | null;
 }
 
 export interface FetchPublicInit {
@@ -73,6 +78,7 @@ export async function fetchPublic(
     headers: {
       "user-agent": USER_AGENT,
       accept: "application/json, text/markdown, text/html",
+      ...(options.clientIp ? { "x-forwarded-for": options.clientIp } : {}),
       ...(init.body !== undefined
         ? { "content-type": "application/json" }
         : {}),

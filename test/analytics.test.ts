@@ -35,6 +35,19 @@ describe("captureToolCall", () => {
     });
   });
 
+  it("carries error_code on failures and null on success", async () => {
+    process.env.NODE_ENV = "production";
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+    await captureToolCall("get_listing", true, {}, null, "not_found");
+    await captureToolCall("get_listing", false, {}, null, "not_found");
+    await captureToolCall("get_listing", false);
+    const codes = fetchMock.mock.calls.map(
+      (call) => JSON.parse(call[1]!.body as string).properties.error_code
+    );
+    expect(codes).toEqual([null, "not_found", "unknown"]);
+  });
+
   it("merges sanitized props without letting them clobber core fields", async () => {
     process.env.NODE_ENV = "production";
     const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));

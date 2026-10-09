@@ -28,13 +28,16 @@ function captureKey(): string | null {
  * caller's hashed identity (client.ts) so `uniq(distinct_id)` counts
  * agents; without one it falls back to the per-brand "mcp.supost.com".
  * `$process_person_profile: false` keeps either from minting a PostHog
- * person per caller.
+ * person per caller. `errorCode` is the upstream SupostApiError code
+ * (rate_limited, not_found, …) or "unknown" for any other failure — never
+ * the error message, which can quote user content.
  */
 export function captureToolCall(
   tool: string,
   ok: boolean,
   props: Record<string, unknown> = {},
-  client: ClientIdentity | null = null
+  client: ClientIdentity | null = null,
+  errorCode: string | null = null
 ): Promise<void> {
   const key = captureKey();
   if (!key) return Promise.resolve();
@@ -51,6 +54,7 @@ export function captureToolCall(
         tool,
         brand,
         ok,
+        error_code: ok ? null : (errorCode ?? "unknown"),
         client_id: client?.client_id ?? null,
         client_ua: client?.client_ua ?? null,
         client_country: client?.client_country ?? null,

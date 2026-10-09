@@ -281,6 +281,7 @@ describe("MCP server", () => {
     expect(props).toMatchObject({
       tool: "send_message",
       ok: true,
+      error_code: null,
       post_id: 42,
       message_chars: 28,
     });
@@ -300,11 +301,80 @@ describe("MCP server", () => {
     });
   });
 
-  it("keys the PostHog event on the hashed caller identity from the HTTP headers", async () => {
+  it("records the upstream error code on the PostHog event, never the message", async () => {
     process.env.NODE_ENV = "production";
     const requests: Array<{ url: string; body: string }> = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       requests.push({ url, body: String(init?.body ?? "") });
+      if (url.includes("/api/public/listings")) {
+        return new Response(
+          JSON.stringify({ error: "rate_limited", message: "Slow down, 203.0.113.7" }),
+          { status: 429, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("ok", { status: 200 });
+    });
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "search_listings", arguments: { q: "bike" } });
+    expect(result.isError).toBe(true);
+    // The analytics-only classification never leaks into the tool result.
+    expect(result).not.toHaveProperty("error_code");
+
+    const posthog = requests.find((r) => r.url.includes("posthog.com"));
+    expect(posthog).toBeDefined();
+    const props = JSON.parse(posthog!.body).properties;
+    expect(props).toMatchObject({ tool: "search_listings", ok: false, error_code: "rate_limited" });
+    expect(posthog!.body).not.toContain("Slow down");
+  });
+
+  it("classifies non-API failures as error_code unknown", async () => {
+    process.env.NODE_ENV = "production";
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, body: String(init?.body ?? "") });
+      if (url.includes("/stats.md")) throw new TypeError("fetch failed: ECONNRESET");
+      return new Response("ok", { status: 200 });
+    });
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "get_market_stats", arguments: {} });
+    expect(result.isError).toBe(true);
+    const posthog = requests.find((r) => r.url.includes("posthog.com"));
+    const props = JSON.parse(posthog!.body).properties;
+    expect(props).toMatchObject({ tool: "get_market_stats", ok: false, error_code: "unknown" });
+    expect(posthog!.body).not.toContain("ECONNRESET");
+  });
+
+  it("tags an undeliverable address as error_code email_undeliverable", async () => {
+    process.env.NODE_ENV = "production";
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, body: String(init?.body ?? "") });
+      if (url.includes("/api/public/messages")) {
+        return new Response(
+          JSON.stringify({ error: "email_undeliverable", reason: "no_mx", email: "buyer@example.com" }),
+          { status: 422, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("ok", { status: 200 });
+    });
+    const client = await connectedClient();
+    const result = await client.callTool({ name: "send_message", arguments: SEND_ARGS });
+    expect(result.isError).toBe(true);
+    const posthog = requests.find((r) => r.url.includes("posthog.com"));
+    const props = JSON.parse(posthog!.body).properties;
+    expect(props).toMatchObject({ tool: "send_message", ok: false, error_code: "email_undeliverable" });
+    expect(posthog!.body).not.toContain("buyer@example.com");
+  });
+
+  it("keys the PostHog event on the hashed caller identity from the HTTP headers", async () => {
+    process.env.NODE_ENV = "production";
+    const requests: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({
+        url,
+        body: String(init?.body ?? ""),
+        headers: (init?.headers ?? {}) as Record<string, string>,
+      });
       if (url.includes("/api/public/categories")) {
         return new Response(JSON.stringify({ categories: [] }), {
           status: 200,
@@ -353,13 +423,22 @@ describe("MCP server", () => {
       client_country: "US",
     });
     expect(posthog!.body).not.toContain("203.0.113.7");
+
+    // The upstream call carries the agent's IP (first hop only), so the
+    // marketplace's per-IP limiter sees the agent, not Vercel's egress IP.
+    const upstream = requests.find((r) => r.url.includes("/api/public/categories"));
+    expect(upstream?.headers["x-forwarded-for"]).toBe("203.0.113.7");
   });
 
   it("falls back to the per-brand distinct_id when no HTTP headers are available", async () => {
     process.env.NODE_ENV = "production";
-    const requests: Array<{ url: string; body: string }> = [];
+    const requests: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-      requests.push({ url, body: String(init?.body ?? "") });
+      requests.push({
+        url,
+        body: String(init?.body ?? ""),
+        headers: (init?.headers ?? {}) as Record<string, string>,
+      });
       return new Response(JSON.stringify({ categories: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -372,6 +451,8 @@ describe("MCP server", () => {
     const body = JSON.parse(posthog!.body);
     expect(body.distinct_id).toBe("mcp.supost.com");
     expect(body.properties.client_id).toBeNull();
+    const upstream = requests.find((r) => r.url.includes("/api/public/categories"));
+    expect(upstream?.headers).not.toHaveProperty("x-forwarded-for");
   });
 
   it("upstream errors become isError tool results, not protocol failures", async () => {
