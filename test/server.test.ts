@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "../src/server.js";
 
@@ -297,6 +298,80 @@ describe("MCP server", () => {
         reply_to_email: "buyer@example.com",
       },
     });
+  });
+
+  it("keys the PostHog event on the hashed caller identity from the HTTP headers", async () => {
+    process.env.NODE_ENV = "production";
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, body: String(init?.body ?? "") });
+      if (url.includes("/api/public/categories")) {
+        return new Response(JSON.stringify({ categories: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+
+    // Same stateless streamable-HTTP transport the Vercel handler uses, so
+    // the headers travel the real path: Request → transport → extra.requestInfo.
+    const server = buildServer();
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+    const response = await transport.handleRequest(
+      new Request("http://localhost/api/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "x-forwarded-for": "203.0.113.7, 10.0.0.1",
+          "user-agent": "claude-code/2.0 (mcp)",
+          "x-vercel-ip-country": "US",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list_categories", arguments: {} },
+        }),
+      })
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const posthog = requests.find((r) => r.url.includes("posthog.com"));
+    expect(posthog).toBeDefined();
+    const body = JSON.parse(posthog!.body);
+    expect(body.distinct_id).toMatch(/^client:[0-9a-f]{24}$/);
+    expect(body.properties).toMatchObject({
+      tool: "list_categories",
+      client_id: body.distinct_id,
+      client_ua: "claude-code/2.0 (mcp)",
+      client_country: "US",
+    });
+    expect(posthog!.body).not.toContain("203.0.113.7");
+  });
+
+  it("falls back to the per-brand distinct_id when no HTTP headers are available", async () => {
+    process.env.NODE_ENV = "production";
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      requests.push({ url, body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({ categories: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const client = await connectedClient();
+    await client.callTool({ name: "list_categories", arguments: {} });
+    const posthog = requests.find((r) => r.url.includes("posthog.com"));
+    expect(posthog).toBeDefined();
+    const body = JSON.parse(posthog!.body);
+    expect(body.distinct_id).toBe("mcp.supost.com");
+    expect(body.properties.client_id).toBeNull();
   });
 
   it("upstream errors become isError tool results, not protocol failures", async () => {

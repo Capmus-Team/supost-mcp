@@ -57,6 +57,26 @@ describe("captureToolCall", () => {
     expect(body.properties.ok).toBe(false);
   });
 
+  it("keys the event on the caller's hashed identity when one is known", async () => {
+    process.env.NODE_ENV = "production";
+    const fetchMock = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+    await captureToolCall("search_listings", true, { q: "bike" }, {
+      client_id: "client:abc123",
+      client_ua: "claude-code/2.0",
+      client_country: "US",
+    });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body.distinct_id).toBe("client:abc123");
+    expect(body.properties).toMatchObject({
+      client_id: "client:abc123",
+      client_ua: "claude-code/2.0",
+      client_country: "US",
+      brand: "supost",
+      $process_person_profile: false,
+    });
+  });
+
   it("POSTHOG_KEY=\"\" disables capture", async () => {
     process.env.NODE_ENV = "production";
     process.env.POSTHOG_KEY = "";
