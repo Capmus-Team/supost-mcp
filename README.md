@@ -78,10 +78,33 @@ Deployed on Vercel as a stateless **streamable-HTTP** MCP endpoint
 
 ```
 https://mcp.supost.com/mcp        (rewritten to /api/mcp)
+https://mcp.supost.com/health     (rewritten to /api/health)
 ```
 
 No sessions, no Redis, no auth — every request is independently served and
 all upstream data is public and CDN-cached.
+
+### Which commit is live
+
+The `initialize` response's `serverInfo.version` is
+`<package version>+<short git sha>` on Vercel (e.g. `0.3.0+835efb3`, from
+`VERCEL_GIT_COMMIT_SHA`; plain `0.3.0` locally — see
+[src/version.ts](src/version.ts)), so any MCP client, or `GET /health`,
+shows the deployed commit. Compare it with `git rev-parse --short
+origin/master` when something looks stale.
+
+### Health check and uptime monitoring
+
+`GET /health` answers `{"ok": true, "brand": "supost", "version": "…"}`
+without calling upstream ([api/health.ts](api/health.ts)): it says the
+function is serving, not that supost.com is up. Point an **UptimeRobot HTTP
+monitor** at each brand (manual step, both needed):
+
+- `https://mcp.supost.com/health`
+- `https://mcp.capmus.com/health`
+
+Alerting on a non-200 (keyword `"ok":true` optional) catches a broken deploy
+or a dropped domain; the `version` in the body shows which commit answered.
 
 ### Deploy
 
@@ -105,6 +128,13 @@ Every tool call emits one PostHog `mcp_tool_called` event (sanitized args,
 no PII — see [src/analytics.ts](src/analytics.ts)) and, when `TOOL_LOG_URL`
 / `TOOL_LOG_KEY` are set, a full-argument row in the marketplace's private
 `ops.mcp_tool_call` table ([src/toollog.ts](src/toollog.ts)).
+
+Failed calls carry `error_code`: the public API's error code
+(`rate_limited`, `not_found`, `email_undeliverable`, `invalid_request`, …)
+or `unknown` for anything else (network failure, unexpected response
+shape); `null` on success. The error *message* is never sent, since it can
+quote user content — break down by `error_code` to tell a rate-limit spike
+from an upstream outage.
 
 The PostHog `distinct_id` is a salted SHA-256 of the caller's IP +
 User-Agent ([src/client.ts](src/client.ts)), so `uniq(distinct_id)` counts
@@ -131,6 +161,16 @@ caching. The client in [src/http.ts](src/http.ts) respects this: on a 429 it
 honors `Retry-After` (capped at 5 s), retries **once**, and otherwise
 surfaces a structured `rate_limited` error instructing the agent to back off
 — it never retries in a loop. All requests carry a `supost-mcp/…` User-Agent.
+
+Every marketplace call (never the status RPC) also carries the trusted-agent
+headers: `x-supost-api-key` (`SUPOST_API_KEY` in the deployment env, never in
+git) and, when the calling agent's IP is known, `x-supost-agent-client-ip`
+with it (first hop of the MCP's own inbound `x-forwarded-for`). The API
+trusts that IP only when the key verifies (supost-web
+`docs/dev/469-mcp-agent-api-hardening-handoff.md`), so the per-IP limit can
+apply per agent rather than to the single Vercel egress IP all agents share.
+Plain `X-Forwarded-For` would not work: supost.com runs on Vercel, which
+overwrites it at the edge.
 
 ## Development
 

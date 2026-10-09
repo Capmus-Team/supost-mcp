@@ -1,18 +1,20 @@
 import { createMcpHandler } from "mcp-handler";
 import { getBrand } from "../src/config.js";
 import { registerTools } from "../src/server.js";
+import { serverVersion } from "../src/version.js";
 
 /**
  * Remote MCP endpoint (streamable HTTP transport) at /api/mcp, rewritten
  * from /mcp (vercel.json). Stateless: each POST gets a fresh server; no
- * Redis, no sessions, no secrets (doc 190 E3).
+ * Redis, no sessions, no secrets (doc 190 E3). serverInfo.version carries
+ * the deployed commit (src/version.ts), visible in any initialize response.
  */
 const handler = createMcpHandler(
   (server) => {
     registerTools(server);
   },
   {
-    serverInfo: { name: getBrand().key, version: "0.3.0" },
+    serverInfo: { name: getBrand().key, version: serverVersion() },
   },
   {
     basePath: "/api",

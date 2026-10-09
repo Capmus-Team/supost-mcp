@@ -6,6 +6,8 @@
  * we never hammer the origin in a loop.
  */
 
+import { getBaseUrl } from "./config.js";
+
 export type FetchLike = (
   url: string,
   init?: {
@@ -47,6 +49,29 @@ function retryDelayMs(response: Response): number {
 export interface FetchPublicOptions {
   fetchImpl?: FetchLike;
   sleep?: (ms: number) => Promise<void>;
+  /** The calling agent's IP (first hop of the MCP's own inbound
+   *  x-forwarded-for), sent to the marketplace as
+   *  `x-supost-agent-client-ip` so its per-IP limiter and logs can see the
+   *  agent rather than the one Vercel egress IP every agent shares. Omitted
+   *  when unknown. Not X-Forwarded-For: supost.com runs on Vercel, which
+   *  overwrites that header at the edge. */
+  clientIp?: string | null;
+}
+
+/**
+ * Trusted-agent headers for the marketplace only (never for the status RPC
+ * or any other host): the proof-of-origin API key (supost-web docs/dev/316;
+ * SUPOST_API_KEY in the deployment env, never in git) and the calling
+ * agent's IP, which the API trusts only when the key verifies (supost-web
+ * docs/dev/469). Harmless until that API side ships.
+ */
+function agentHeaders(url: string, clientIp: string | null | undefined): Record<string, string> {
+  if (new URL(url).origin !== new URL(getBaseUrl()).origin) return {};
+  const apiKey = process.env.SUPOST_API_KEY?.trim();
+  return {
+    ...(apiKey ? { "x-supost-api-key": apiKey } : {}),
+    ...(clientIp ? { "x-supost-agent-client-ip": clientIp } : {}),
+  };
 }
 
 export interface FetchPublicInit {
@@ -73,6 +98,7 @@ export async function fetchPublic(
     headers: {
       "user-agent": USER_AGENT,
       accept: "application/json, text/markdown, text/html",
+      ...agentHeaders(url, options.clientIp),
       ...(init.body !== undefined
         ? { "content-type": "application/json" }
         : {}),
